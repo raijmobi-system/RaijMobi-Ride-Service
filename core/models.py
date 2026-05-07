@@ -119,3 +119,73 @@ class BaseModel(UUIDModel, TimeStampedModel, UserTrackedModel):
 class BaseModelWithSoftDelete(BaseModel, SoftDeleteModel):
     class Meta:
         abstract = True
+
+
+""" Aqui começa os modelos referentes a carona"""
+
+
+class Vehicle(BaseModelWithSoftDelete):
+
+    CORES_CHOICES = (
+        ('vermelho', 'Vermelho'),
+        ('laranja', 'Laranja'),
+        ('amarelo', 'Amarelo'),
+        ('verde', 'Verde'),
+        ('azul', 'Azul'),
+        ('anil', 'Anil'),
+        ('violeta', 'Violeta'),
+        ('rosa', 'Rosa'),
+        ('preto', 'Preto'),
+        ('branco', 'Branco'),
+        ('cinza', 'Cinza'),
+        ('prata', 'Prata'),
+        ('marrom', 'Marrom'),
+        ('bege', 'Bege'),
+    )
+
+    user = models.ForeignKey(
+        UserClient,
+        on_delete=models.CASCADE,
+        related_name="veiculos"
+    )
+    model = models.CharField(max_length=100)
+    color = models.CharField(max_length=50, choices=CORES_CHOICES)
+    plate = models.CharField(max_length=10)
+
+    def __str__(self):
+        return f"{self.model} - {self.plate}"
+    
+class Ride(BaseModelWithSoftDelete):
+    vehicle = models.ForeignKey(
+        Vehicle,
+        on_delete=models.CASCADE,
+        related_name="caronas"
+    )
+    origin = models.CharField(max_length=255)
+    destination = models.CharField(max_length=255)
+    departure_time = models.DateTimeField()
+    seats = models.IntegerField()
+    status = models.CharField(max_length=50)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.origin} -> {self.destination}"
+
+class Reservation(BaseModelWithSoftDelete):
+    ride = models.ForeignKey(
+        Ride,
+        on_delete=models.CASCADE,
+        related_name="reservations"
+    )
+    passenger = models.ManyToManyField(
+        UserClient,
+        related_name="reservations"
+    )
+    status = models.CharField(max_length=50)
+
+    class Meta:
+        verbose_name = "Reserva"
+        verbose_name_plural = "Reservas"
+
+    def __str__(self):
+        return f"Reserva {self.uuid}" 
