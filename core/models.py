@@ -153,6 +153,8 @@ class Vehicle(BaseModelWithSoftDelete):
     color = models.CharField(max_length=50, choices=CORES_CHOICES)
     plate = models.CharField(max_length=10)
 
+    seats = models.IntegerField()
+
     def __str__(self):
         return f"{self.model} - {self.plate}"
     
@@ -179,24 +181,32 @@ class Ride(BaseModelWithSoftDelete):
     expected_arrival = models.DateTimeField()
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
-    seats = models.IntegerField()
+    available_seats = models.IntegerField()
     status = models.CharField(max_length=50, choices=STATUS_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
 
+    def clean(self):
+        if self.available_seats > self.vehicle.seats:
+            raise ValidationError(
+                f"O veículo possui apenas {self.vehicle.seats} assentos."
+            )
+
     def save(self, *args, **kwargs):
+
+        self.clean()
+
         if self.pk:
             orig = Ride.objects.get(pk=self.pk)
 
-            # Regra 1: Se o status for cancelado, a corrida não pode ser alterada.
             if orig.status == 'cancelada':
-                raise ValidationError("Corridas canceladas não podem ser alteradas.")
-
-
-            # Regra 3: Verifica alterações no preço (Nova regra baseada em Reservas)
+                raise ValidationError(
+                    "Corridas canceladas não podem ser alteradas."
+                )
             if self.price != orig.price:
-                # Verifica se existe pelo menos uma reserva associada a esta corrida
                 if self.reservations.exists():
-                    raise ValidationError("O preço não pode ser alterado pois já existem reservas para esta corrida.")
+                    raise ValidationError(
+                         "O preço não pode ser alterado pois já existem reservas para esta corrida."
+                    )
 
         super().save(*args, **kwargs)
 
