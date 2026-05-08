@@ -9,5 +9,5 @@ router.register(r'rides', RideViewset, basename='ride')
 router.register(r'vehicles', VehicleViewset, basename='vehicle')
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ]
