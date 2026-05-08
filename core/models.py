@@ -156,6 +156,14 @@ class Vehicle(BaseModelWithSoftDelete):
         return f"{self.model} - {self.plate}"
     
 class Ride(BaseModelWithSoftDelete):
+
+    STATUS_CHOICES = (
+        ('pendente', 'Pendente'),
+        ('confirmada', 'Confirmada'),
+        ('em_andamento', 'Em Andamento'),
+        ('cancelada', 'Cancelada'),
+        ('finalizada', 'Finalizada')
+    )
     vehicle = models.ForeignKey(
         Vehicle,
         on_delete=models.CASCADE,
@@ -166,8 +174,14 @@ class Ride(BaseModelWithSoftDelete):
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
     seats = models.IntegerField()
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def save(self, *args, **kwargs):
+        if self.status == 'em_andamento':
+            raise 
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.origin} -> {self.destination}"
