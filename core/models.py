@@ -2,7 +2,8 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from .manager import SoftDeleteManager
-
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 # ==========================================
 # 1. FUNÇÃO SENTINELA (CORRIGIDA)
@@ -155,19 +156,49 @@ class Vehicle(BaseModelWithSoftDelete):
     def __str__(self):
         return f"{self.model} - {self.plate}"
     
+
+
+
+
 class Ride(BaseModelWithSoftDelete):
+    STATUS_CHOICES = (
+        ('pendente', 'Pendente'),
+        ('confirmada', 'Confirmada'),
+        ('em_andamento', 'Em Andamento'),
+        ('cancelada', 'Cancelada'),
+        ('finalizada', 'Finalizada')
+    )
+    
     vehicle = models.ForeignKey(
-        Vehicle,
+        Vehicle, 
         on_delete=models.CASCADE,
         related_name="caronas"
     )
     origin = models.CharField(max_length=255)
     destination = models.CharField(max_length=255)
+    expected_arrival = models.DateTimeField()
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
     seats = models.IntegerField()
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            orig = Ride.objects.get(pk=self.pk)
+
+            # Regra 1: Se o status for cancelado, a corrida não pode ser alterada.
+            if orig.status == 'cancelada':
+                raise ValidationError("Corridas canceladas não podem ser alteradas.")
+
+
+            # Regra 3: Verifica alterações no preço (Nova regra baseada em Reservas)
+            if self.price != orig.price:
+                # Verifica se existe pelo menos uma reserva associada a esta corrida
+                if self.reservations.exists():
+                    raise ValidationError("O preço não pode ser alterado pois já existem reservas para esta corrida.")
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.origin} -> {self.destination}"
@@ -189,4 +220,4 @@ class Reservation(BaseModelWithSoftDelete):
         verbose_name_plural = "Reservas"
 
     def __str__(self):
-        return f"Reserva {self.uuid}" 
+        return f"Reserva {self.uuid}"
