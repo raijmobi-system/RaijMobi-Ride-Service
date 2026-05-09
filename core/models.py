@@ -312,6 +312,12 @@ class Ride(BaseModelWithSoftDelete):
 # ==========================================
 class Reservation(BaseModelWithSoftDelete):
 
+    STATUS_CHOICES = (
+        ('pendente', 'Pendente'),
+        ('confirmada', 'Confirmada'),
+        ('cancelada', 'Cancelada'),
+    )
+
     ride = models.ForeignKey(
         Ride,
         on_delete=models.CASCADE,
@@ -323,11 +329,43 @@ class Reservation(BaseModelWithSoftDelete):
         related_name="reservations"
     )
 
-    status = models.CharField(max_length=50)
+    status = models.CharField(
+        max_length=50,
+        choices=STATUS_CHOICES
+    )
 
     class Meta:
         verbose_name = "Reserva"
         verbose_name_plural = "Reservas"
+
+    def save(self, *args, **kwargs):
+
+        nova_reserva = self.pk is None
+
+        if nova_reserva:
+
+            if self.ride.available_seats <= 0:
+
+                raise ValidationError(
+                    "Não há vagas disponíveis para esta carona."
+                )
+
+            self.ride.available_seats -= 1
+            self.ride.save()
+
+        else:
+
+            reserva_antiga = Reservation.objects.get(pk=self.pk)
+
+            if (
+                reserva_antiga.status != 'cancelada'
+                and self.status == 'cancelada'
+            ):
+
+                self.ride.available_seats += 1
+                self.ride.save()
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Reserva {self.uuid}"

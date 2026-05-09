@@ -13,7 +13,27 @@ class UserClientSerializer(serializers.ModelSerializer):
 class ReservationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
-        fields = '__all__'
+        fields = [
+            'id',
+            'ride',
+            'passenger',
+            'status'
+        ]
+    def validate_status(self,value):
+
+        status_validos = [
+            'pendente',
+            'confirmada',
+            'cancelada',
+        ]
+
+        if value not in status_validos:
+
+            raise serializers.ValidationError(
+                "Status inválido"
+            )
+        
+        return value
 
 
 class RideSerializer(serializers.ModelSerializer):
@@ -46,7 +66,7 @@ class RideSerializer(serializers.ModelSerializer):
             vehicle__user=vehicle.user,
             status='em_andamento'
             )
-        if self.isinstance:
+        if self.instance:
             conflito = conflito.exclude(pk=self.instance.pk)
 
         if conflito.exists():
