@@ -4,6 +4,8 @@ from django.utils.translation import gettext_lazy as _
 from .manager import SoftDeleteManager
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from datetime import timedelta
+from django.db.models import F
 
 
 # ==========================================
@@ -190,6 +192,9 @@ class Vehicle(BaseModelWithSoftDelete):
 
 
 # ==========================================
+
+
+# ==========================================
 # RIDE
 # ==========================================
 class Ride(BaseModelWithSoftDelete):
@@ -209,20 +214,12 @@ class Ride(BaseModelWithSoftDelete):
     )
 
     origin = models.CharField(max_length=255)
-
     destination = models.CharField(max_length=255)
-
     expected_arrival = models.DateTimeField()
-
     start_time = models.DateTimeField()
-
-    end_time = models.DateTimeField(
-        null=True,
-        blank=True
-    )
-
+    end_time = models.DateTimeField(null=True, blank=True)
     available_seats = models.IntegerField()
-
+    
     status = models.CharField(
         max_length=50,
         choices=STATUS_CHOICES
@@ -237,69 +234,59 @@ class Ride(BaseModelWithSoftDelete):
     # VALIDAÇÕES
     # ==========================================
     def clean(self):
+        now = timezone.now()
+
+        # 1. Impede data de chegada anterior a hoje
+        if self.expected_arrival and self.expected_arrival < now:
+            raise ValidationError("A previsão de chegada não pode ser uma data passada.")
+
+        # 2. Impede data superior a 3 meses (90 dias)
+        if self.expected_arrival and self.expected_arrival > (now + timedelta(days=90)):
+            raise ValidationError("A previsão de chegada não pode ultrapassar 3 meses a partir de hoje.")
 
         # limite de assentos
         if self.available_seats > self.vehicle.seats:
-            raise ValidationError(
-                f"O veículo possui apenas {self.vehicle.seats} assentos."
-            )
+            raise ValidationError(f"O veículo possui apenas {self.vehicle.seats} assentos.")
 
         # horário final maior que inicial
         if self.end_time and self.end_time <= self.start_time:
-            raise ValidationError(
-                "O horário final deve ser maior que o horário inicial."
-            )
+            raise ValidationError("O horário final deve ser maior que o horário inicial.")
 
         # previsão chegada maior que saída
-        if self.expected_arrival <= self.start_time:
-            raise ValidationError(
-                "A previsão de chegada deve ser após a saída."
-            )
+        if self.expected_arrival and self.expected_arrival <= self.start_time:
+            raise ValidationError("A previsão de chegada deve ser após a saída.")
 
     # ==========================================
     # SAVE
     # ==========================================
     def save(self, *args, **kwargs):
-
         self.clean()
 
         # muda automaticamente status
-        if (
-            timezone.now() >= self.start_time
-            and self.status == 'confirmada'
-        ):
+        if timezone.now() >= self.start_time and self.status == 'confirmada':
             self.status = 'em_andamento'
 
         # impede motorista em duas viagens ao mesmo tempo
-        conflito = Ride.objects.filter(
+        conflict = Ride.objects.filter(
             vehicle__user=self.vehicle.user,
             status='em_andamento'
         ).exclude(pk=self.pk)
 
-        if conflito.exists():
-            raise ValidationError(
-                "O motorista já possui uma carona em andamento."
-            )
+        if conflict.exists():
+            raise ValidationError("O motorista já possui uma carona em andamento.")
 
         # validações em update
         if self.pk:
-
             orig = Ride.objects.get(pk=self.pk)
 
             # corrida cancelada não altera
             if orig.status == 'cancelada':
-                raise ValidationError(
-                    "Corridas canceladas não podem ser alteradas."
-                )
+                raise ValidationError("Corridas canceladas não podem ser alteradas.")
 
             # não altera preço se houver reservas
             if self.price != orig.price:
-
                 if self.reservations.exists():
-
-                    raise ValidationError(
-                        "O preço não pode ser alterado pois já existem reservas para esta corrida."
-                    )
+                    raise ValidationError("O preço não pode ser alterado pois já existem reservas para esta corrida.")
 
         super().save(*args, **kwargs)
 
@@ -324,8 +311,9 @@ class Reservation(BaseModelWithSoftDelete):
         related_name="reservations"
     )
 
-    passenger = models.ManyToManyField(
+    passenger = models.ForeignKey(
         UserClient,
+        on_delete=models.CASCADE,
         related_name="reservations"
     )
 
@@ -339,33 +327,27 @@ class Reservation(BaseModelWithSoftDelete):
         verbose_name_plural = "Reservas"
 
     def save(self, *args, **kwargs):
-
         nova_reserva = self.pk is None
 
         if nova_reserva:
-
+            # Verifica se há vagas antes de tentar salvar
             if self.ride.available_seats <= 0:
+                raise ValidationError("Não há vagas disponíveis para esta carona.")
 
-                raise ValidationError(
-                    "Não há vagas disponíveis para esta carona."
-                )
-
-            self.ride.available_seats -= 1
-            self.ride.save()
+            # CORREÇÃO: Usa 'F' para evitar conflito se duas pessoas reservarem no mesmo segundo
+            self.ride.available_seats = F('available_seats') - 1
+            self.ride.save(update_fields=['available_seats'])
 
         else:
-
             reserva_antiga = Reservation.objects.get(pk=self.pk)
 
-            if (
-                reserva_antiga.status != 'cancelada'
-                and self.status == 'cancelada'
-            ):
-
-                self.ride.available_seats += 1
-                self.ride.save()
+            # Se a reserva mudar de ativa para cancelada, a vaga é devolvida
+            if reserva_antiga.status != 'cancelada' and self.status == 'cancelada':
+                self.ride.available_seats = F('available_seats') + 1
+                self.ride.save(update_fields=['available_seats'])
 
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Reserva {self.uuid}"
+        # CORREÇÃO: Utilizando self.pk em vez de self.uuid para evitar possíveis erros de atributo
+        return f"Reserva {self.pk}"
