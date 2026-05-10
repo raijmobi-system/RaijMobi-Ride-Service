@@ -297,6 +297,14 @@ class Ride(BaseModelWithSoftDelete):
 # ==========================================
 # RESERVATION
 # ==========================================
+
+from django.db import models
+from django.core.exceptions import ValidationError
+from django.db.models import F
+
+# ==========================================
+# RESERVATION
+# ==========================================
 class Reservation(BaseModelWithSoftDelete):
 
     STATUS_CHOICES = (
@@ -317,6 +325,9 @@ class Reservation(BaseModelWithSoftDelete):
         related_name="reservations"
     )
 
+    # NOVO CAMPO: Define quantas vagas essa reserva ocupa
+    requested_seats = models.PositiveIntegerField(default=1)
+
     status = models.CharField(
         max_length=50,
         choices=STATUS_CHOICES
@@ -326,28 +337,42 @@ class Reservation(BaseModelWithSoftDelete):
         verbose_name = "Reserva"
         verbose_name_plural = "Reservas"
 
+    def clean(self):
+        # Garante que ninguém faça uma reserva de 0 ou vagas negativas
+        if self.requested_seats <= 0:
+            raise ValidationError("A reserva deve ser de pelo menos 1 assento.")
+
     def save(self, *args, **kwargs):
+        self.clean()
+
         nova_reserva = self.pk is None
 
         if nova_reserva:
-            # Verifica se há vagas antes de tentar salvar
-            if self.ride.available_seats <= 0:
-                raise ValidationError("Não há vagas disponíveis para esta carona.")
+            # 1. Verifica se a carona tem vagas suficientes para o pedido
+            if self.ride.available_seats < self.requested_seats:
+                raise ValidationError(
+                    f"Vagas insuficientes. Você pediu {self.requested_seats}, mas só há {self.ride.available_seats} disponíveis."
+                )
 
-            # CORREÇÃO: Usa 'F' para evitar conflito se duas pessoas reservarem no mesmo segundo
-            self.ride.available_seats = F('available_seats') - 1
+            # 2. Debita exatamente a quantidade solicitada pelo usuário
+            self.ride.available_seats = F('available_seats') - self.requested_seats
             self.ride.save(update_fields=['available_seats'])
 
         else:
             reserva_antiga = Reservation.objects.get(pk=self.pk)
 
-            # Se a reserva mudar de ativa para cancelada, a vaga é devolvida
+            # 3. Trava de segurança: impede mudar a quantidade de vagas depois de salvo
+            if self.requested_seats != reserva_antiga.requested_seats:
+                raise ValidationError(
+                    "Não é possível alterar a quantidade de vagas de uma reserva existente. "
+                    "Por favor, cancele esta reserva e faça uma nova."
+                )
+
             if reserva_antiga.status != 'cancelada' and self.status == 'cancelada':
-                self.ride.available_seats = F('available_seats') + 1
+                self.ride.available_seats = F('available_seats') + self.requested_seats
                 self.ride.save(update_fields=['available_seats'])
 
         super().save(*args, **kwargs)
 
     def __str__(self):
-        # CORREÇÃO: Utilizando self.pk em vez de self.uuid para evitar possíveis erros de atributo
-        return f"Reserva {self.pk}"
+        return f"Reserva {self.pk} ({self.requested_seats} vagas) - {self.passenger.nome}"
