@@ -342,26 +342,61 @@ class Reservation(BaseModelWithSoftDelete):
         if self.requested_seats <= 0:
             raise ValidationError("A reserva deve ser de pelo menos 1 assento.")
 
+    # def save(self, *args, **kwargs):
+    #     self.clean()
+
+    #     nova_reserva = self.pk is None
+
+    #     if nova_reserva:
+    #         # 1. Verifica se a carona tem vagas suficientes para o pedido
+    #         if self.ride.available_seats < self.requested_seats:
+    #             raise ValidationError(
+    #                 f"Vagas insuficientes. Você pediu {self.requested_seats}, mas só há {self.ride.available_seats} disponíveis."
+    #             )
+
+    #         # 2. Debita exatamente a quantidade solicitada pelo usuário
+    #         self.ride.available_seats = F('available_seats') - self.requested_seats
+    #         self.ride.save(update_fields=['available_seats'])
+
+    #     else:
+    #         reserva_antiga = Reservation.objects.get(pk=self.pk)
+
+    #         # 3. Trava de segurança: impede mudar a quantidade de vagas depois de salvo
+    #         if self.requested_seats != reserva_antiga.requested_seats:
+    #             raise ValidationError(
+    #                 "Não é possível alterar a quantidade de vagas de uma reserva existente. "
+    #                 "Por favor, cancele esta reserva e faça uma nova."
+    #             )
+
+    #         if reserva_antiga.status != 'cancelada' and self.status == 'cancelada':
+    #             self.ride.available_seats = F('available_seats') + self.requested_seats
+    #             self.ride.save(update_fields=['available_seats'])
+
+    #     super().save(*args, **kwargs)
+
     def save(self, *args, **kwargs):
         self.clean()
 
         nova_reserva = self.pk is None
 
         if nova_reserva:
-            # 1. Verifica se a carona tem vagas suficientes para o pedido
-            if self.ride.available_seats < self.requested_seats:
+            # Carrega a ride fresca do banco para verificar vagas
+            ride = Ride.objects.get(pk=self.ride.pk)
+            if ride.available_seats < self.requested_seats:
                 raise ValidationError(
-                    f"Vagas insuficientes. Você pediu {self.requested_seats}, mas só há {self.ride.available_seats} disponíveis."
+                    f"Vagas insuficientes. Você pediu {self.requested_seats}, mas só há {ride.available_seats} disponíveis."
                 )
 
-            # 2. Debita exatamente a quantidade solicitada pelo usuário
-            self.ride.available_seats = F('available_seats') - self.requested_seats
-            self.ride.save(update_fields=['available_seats'])
+            # Atualiza as vagas diretamente no banco sem tocar na instância atual
+            Ride.objects.filter(pk=self.ride.pk).update(
+                available_seats=F('available_seats') - self.requested_seats
+            )
+            # Recarrega a instância da ride para manter consistência
+            self.ride.refresh_from_db()
 
         else:
             reserva_antiga = Reservation.objects.get(pk=self.pk)
 
-            # 3. Trava de segurança: impede mudar a quantidade de vagas depois de salvo
             if self.requested_seats != reserva_antiga.requested_seats:
                 raise ValidationError(
                     "Não é possível alterar a quantidade de vagas de uma reserva existente. "
@@ -369,10 +404,43 @@ class Reservation(BaseModelWithSoftDelete):
                 )
 
             if reserva_antiga.status != 'cancelada' and self.status == 'cancelada':
-                self.ride.available_seats = F('available_seats') + self.requested_seats
-                self.ride.save(update_fields=['available_seats'])
+                Ride.objects.filter(pk=self.ride.pk).update(
+                    available_seats=F('available_seats') + self.requested_seats
+                )
+                self.ride.refresh_from_db()
 
         super().save(*args, **kwargs)
 
+
     def __str__(self):
         return f"Reserva {self.pk} ({self.requested_seats} vagas) - {self.passenger.nome}"
+
+
+# core/models.py (ou core/audit_models.py)
+from easyaudit.models import CRUDEvent
+from django.contrib.contenttypes.models import ContentType
+from .models import UserClient, Vehicle, Ride, Reservation  # importe os modelos originais
+
+class UserClientAudit(CRUDEvent):
+    class Meta:
+        proxy = True
+        verbose_name = 'Auditoria de UserClient'
+        verbose_name_plural = 'Auditorias de UserClient'
+
+class VehicleAudit(CRUDEvent):
+    class Meta:
+        proxy = True
+        verbose_name = 'Auditoria de Veículo'
+        verbose_name_plural = 'Auditorias de Veículos'
+
+class RideAudit(CRUDEvent):
+    class Meta:
+        proxy = True
+        verbose_name = 'Auditoria de Carona'
+        verbose_name_plural = 'Auditorias de Caronas'
+
+class ReservationAudit(CRUDEvent):
+    class Meta:
+        proxy = True
+        verbose_name = 'Auditoria de Reserva'
+        verbose_name_plural = 'Auditorias de Reservas'
