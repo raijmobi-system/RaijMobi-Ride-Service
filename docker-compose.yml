@@ -1,0 +1,28 @@
+services:
+  ride-app:
+    build: .
+    container_name: ride_service
+    command: >
+      sh -c "python manage.py makemigrations &&
+            python manage.py migrate &&
+            python manage.py collectstatic --noinput &&
+            uvicorn ride_service.asgi:application --host 0.0.0.0 --port 8000"
+    ports:
+      - "8004:8000"
+    environment:
+      # Será utilizado se ajustar o settings.py conforme explicado a seguir
+      - ALLOWED_HOSTS=*
+    volumes:
+      # Persiste arquivos de mídia (opcional)
+      - media_volume:/app/media
+      - static_volume:/app/staticfiles 
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  media_volume:
+  static_volume:
