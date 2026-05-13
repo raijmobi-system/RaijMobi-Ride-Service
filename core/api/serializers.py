@@ -82,4 +82,4 @@ class RideSerializer(serializers.ModelSerializer):
 class VehicleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vehicle
-        fields = ['user', 'model', 'color', 'plate','seats']
+        fields = ['id','user', 'model', 'color', 'plate','seats']

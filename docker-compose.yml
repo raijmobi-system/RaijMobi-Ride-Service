@@ -1,7 +1,7 @@
 services:
   ride-app:
     build: .
-    container_name: ride_service
+    container_name: ride-service
     command: >
       sh -c "python manage.py makemigrations &&
             python manage.py migrate &&
@@ -10,18 +10,16 @@ services:
     ports:
       - "8004:8000"
     environment:
-      # Será utilizado se ajustar o settings.py conforme explicado a seguir
       - ALLOWED_HOSTS=*
     volumes:
-      # Persiste arquivos de mídia (opcional)
       - media_volume:/app/media
-      - static_volume:/app/staticfiles 
+      - static_volume:/app/staticfiles
     networks:
-      - app-network
+      - raijmobi-network
 
 networks:
-  app-network:
-    driver: bridge
+  raijmobi-network:
+    external: true
 
 volumes:
   media_volume:
