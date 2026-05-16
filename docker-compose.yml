@@ -7,8 +7,8 @@ services:
             python manage.py migrate &&
             python manage.py collectstatic --noinput &&
             uvicorn ride_service.asgi:application --host 0.0.0.0 --port 8000"
-    ports:
-      - "8004:8000"
+    expose:
+      - "8000"
     environment:
       - ALLOWED_HOSTS=*
     volumes:

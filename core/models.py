@@ -127,10 +127,11 @@ class UserClient(TimeStampedModel):
         editable=False
     )
 
-    nome = models.CharField(max_length=255)
+    name = models.CharField(max_length=255)
+    is_rider = models.BooleanField(default=False)
 
     def __str__(self):
-        return self.nome
+        return self.name
 
 
 # ==========================================
