@@ -376,7 +376,10 @@ class Reservation(BaseModelWithSoftDelete):
     #     super().save(*args, **kwargs)
 
     def save(self, *args, **kwargs):
-        self.clean()
+        is_new = self.pk is None
+        old_status = None
+        if not is_new:
+            old_status = Ride.objects.get(pk=self.pk).status
 
         nova_reserva = self.pk is None
 
@@ -411,6 +414,10 @@ class Reservation(BaseModelWithSoftDelete):
                 self.ride.refresh_from_db()
 
         super().save(*args, **kwargs)
+
+        if self.status == 'confirmada' and (is_new or old_status != 'confirmada'):
+            from .kafka_producer import send_ride_event
+            send_ride_event(self.ride)
 
 
     def __str__(self):

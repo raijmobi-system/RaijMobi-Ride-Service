@@ -39,7 +39,7 @@ class ReservationSerializer(serializers.ModelSerializer):
 class RideSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ride
-        fields = ['vehicle', 'origin', 'destination', 'start_time', 'end_time','expected_arrival','available_seats', 'status', 'price']
+        fields = ['id','uuid', 'vehicle', 'origin', 'destination', 'start_time', 'end_time','expected_arrival','available_seats', 'status', 'price']
     
     def validate(self,data):
         vehicle = data['vehicle']

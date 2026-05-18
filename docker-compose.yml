@@ -1,4 +1,27 @@
 services:
+  zookeeper-ride:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - raijmobi-network
+
+  kafka-ride:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper-ride
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper-ride:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-ride:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - raijmobi-network
+
+
   ride-app:
     build: .
     container_name: ride-service
@@ -10,8 +33,11 @@ services:
          uvicorn ride_service.asgi:application --host 0.0.0.0 --port 8000"
     expose:
       - "8000"
+    ports:                 # ← ADICIONE ESTAS LINHAS
+      - "8004:8000"
     environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka-user:9092
+      - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-user:9092
+      - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092
       - ALLOWED_HOSTS=*
     volumes:
       - media_volume:/app/media
