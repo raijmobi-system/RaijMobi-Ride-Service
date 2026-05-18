@@ -137,6 +137,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             'user',
             'model',
             'color',
+            'type_vehicle',
             'plate',
             'seats'
         ]
