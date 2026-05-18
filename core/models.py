@@ -155,6 +155,11 @@ class Vehicle(BaseModelWithSoftDelete):
         ('bege', 'Bege'),
     )
 
+    TIPO_CHOICES = (
+        ('carro','Carro'),
+        ('moto','Moto'),
+    )
+
     user = models.ForeignKey(
         UserClient,
         on_delete=models.CASCADE,
@@ -162,6 +167,10 @@ class Vehicle(BaseModelWithSoftDelete):
     )
 
     model = models.CharField(max_length=100)
+
+    type_vehicle = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES    )
 
     color = models.CharField(
         max_length=50,
