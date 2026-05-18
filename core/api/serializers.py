@@ -1,12 +1,13 @@
-from rest_framework import serializers
 from django.utils import timezone
-from ..models import Reservation, Ride, Vehicle, UserClient
+from rest_framework import serializers
+
+from ..models import Reservation, Ride, UserClient, Vehicle
 
 
 class UserClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserClient
-        fields = ['id', 'name', 'is_rider']
+        fields = ['id', 'name', 'is_driver']
 
 
 class ReservationSerializer(serializers.ModelSerializer):
@@ -22,24 +23,13 @@ class ReservationSerializer(serializers.ModelSerializer):
 
     def validate_passenger(self, value):
         if not UserClient.objects.filter(id=value.id).exists():
-            raise serializers.ValidationError(
-                "Usuário não encontrado."
-            )
-
+            raise serializers.ValidationError("Usuário não encontrado.")
         return value
 
     def validate_status(self, value):
-        status_validos = [
-            'pendente',
-            'confirmada',
-            'cancelada',
-        ]
-
-        if value not in status_validos:
-            raise serializers.ValidationError(
-                "Status inválido."
-            )
-
+        valid_status = ['pendente', 'confirmada', 'cancelada']
+        if value not in valid_status:
+            raise serializers.ValidationError("Status inválido.")
         return value
 
     def validate(self, data):
@@ -48,10 +38,8 @@ class ReservationSerializer(serializers.ModelSerializer):
 
         if ride.available_seats < requested_seats:
             raise serializers.ValidationError({
-                "requested_seats":
-                f"A carona possui apenas {ride.available_seats} vagas disponíveis."
+                "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
             })
-
         return data
 
 
@@ -60,6 +48,7 @@ class RideSerializer(serializers.ModelSerializer):
         model = Ride
         fields = [
             'id',
+            'uuid',
             'vehicle',
             'origin',
             'destination',
@@ -73,15 +62,9 @@ class RideSerializer(serializers.ModelSerializer):
 
     def validate_vehicle(self, value):
         if not UserClient.objects.filter(id=value.user.id).exists():
-            raise serializers.ValidationError(
-                "Usuário do veículo não existe."
-            )
-
-        if not value.user.is_rider:
-            raise serializers.ValidationError(
-                "Esse usuário não é motorista."
-            )
-
+            raise serializers.ValidationError("Usuário do veículo não existe.")
+        if not value.user.is_driver:
+            raise serializers.ValidationError("Esse usuário não é motorista.")
         return value
 
     def validate(self, data):
@@ -93,22 +76,20 @@ class RideSerializer(serializers.ModelSerializer):
 
         if available_seats > vehicle.seats:
             raise serializers.ValidationError({
-                "available_seats":
-                f"O veículo possui apenas {vehicle.seats} assentos."
+                "available_seats": f"O veículo possui apenas {vehicle.seats} assentos."
             })
 
         if end_time and end_time <= start_time:
             raise serializers.ValidationError({
-                "end_time":
-                "O horário final deve ser maior que o horário inicial."
+                "end_time": "O horário final deve ser maior que o horário inicial."
             })
 
         if expected_arrival and expected_arrival <= start_time:
             raise serializers.ValidationError({
-                "expected_arrival":
-                "A previsão de chegada deve ser após a saída."
+                "expected_arrival": "A previsão de chegada deve ser após a saída."
             })
 
+        # Atualização automática do status se a partida já tiver ocorrido
         if timezone.now() >= start_time:
             data['status'] = 'em_andamento'
 
@@ -116,14 +97,12 @@ class RideSerializer(serializers.ModelSerializer):
             vehicle__user=vehicle.user,
             status='em_andamento'
         )
-
         if self.instance:
             conflito = conflito.exclude(pk=self.instance.pk)
 
         if conflito.exists():
             raise serializers.ValidationError({
-                "vehicle":
-                "O motorista já possui uma carona em andamento."
+                "vehicle": "O motorista já possui uma carona em andamento."
             })
 
         return data
@@ -136,20 +115,15 @@ class VehicleSerializer(serializers.ModelSerializer):
             'id',
             'user',
             'model',
-            'color',
             'type_vehicle',
+            'color',
             'plate',
             'seats'
         ]
 
     def validate_user(self, value):
         if not UserClient.objects.filter(id=value.id).exists():
-            raise serializers.ValidationError(
-                "Usuário não encontrado."
-            )
-
+            raise serializers.ValidationError("Usuário não encontrado.")
         if not value.is_driver:
-         raise serializers.ValidationError(
-            "O usuário não é motorista."
-        )
+            raise serializers.ValidationError("O usuário não é motorista.")
         return value

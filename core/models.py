@@ -3,28 +3,32 @@ from datetime import timedelta
 
 from django.db import models, transaction
 from django.db.models import F
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 
 from easyaudit.models import CRUDEvent
 
 from .manager import SoftDeleteManager
 
 
+# ==========================================
+# 1. FUNÇÃO SENTINELA
+# ==========================================
 def get_sentinel_user_client():
     from core.models import UserClient
 
     sentinel_id = uuid.UUID(int=0)
-
     client, _ = UserClient.objects.get_or_create(
         id=sentinel_id,
         defaults={'name': 'Deleted User Client'}
     )
-
     return client
 
 
+# ==========================================
+# 2. MIXINS ATÔMICOS
+# ==========================================
 class CreatedAtMixin(models.Model):
     created_at = models.DateTimeField(
         _("Created at"),
@@ -72,18 +76,22 @@ class UpdatedByMixin(models.Model):
         abstract = True
 
 
+# ==========================================
+# 3. MIXINS AGRUPADOS
+# ==========================================
 class TimeStampedModel(CreatedAtMixin, UpdatedAtMixin):
-
     class Meta:
         abstract = True
 
 
 class UserTrackedModel(CreatedByMixin, UpdatedByMixin):
-
     class Meta:
         abstract = True
 
 
+# ==========================================
+# 4. BASES GENÉRICAS
+# ==========================================
 class UUIDModel(models.Model):
     uuid = models.UUIDField(
         unique=True,
@@ -109,35 +117,39 @@ class SoftDeleteModel(models.Model):
         abstract = True
 
 
+# ==========================================
+# 5. MODELO USUÁRIO
+# ==========================================
 class UserClient(TimeStampedModel):
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False
     )
-
     name = models.CharField(max_length=255, default='Unknown')
-
-    is_driver = models.BooleanField(default=False)
+    is_driver = models.BooleanField(default=False)   # mantido do primeiro bloco
 
     def __str__(self):
         return self.name
 
 
+# ==========================================
+# 6. MODELOS BASE
+# ==========================================
 class BaseModel(UUIDModel, TimeStampedModel, UserTrackedModel):
-
     class Meta:
         abstract = True
 
 
 class BaseModelWithSoftDelete(BaseModel, SoftDeleteModel):
-
     class Meta:
         abstract = True
 
 
+# ==========================================
+# 7. VEHICLE (com type_vehicle e cores)
+# ==========================================
 class Vehicle(BaseModelWithSoftDelete):
-
     CORES_CHOICES = (
         ('vermelho', 'Vermelho'),
         ('laranja', 'Laranja'),
@@ -156,8 +168,8 @@ class Vehicle(BaseModelWithSoftDelete):
     )
 
     TIPO_CHOICES = (
-        ('carro','Carro'),
-        ('moto','Moto'),
+        ('carro', 'Carro'),
+        ('moto', 'Moto'),
     )
 
     user = models.ForeignKey(
@@ -165,28 +177,20 @@ class Vehicle(BaseModelWithSoftDelete):
         on_delete=models.CASCADE,
         related_name="veiculos"
     )
-
     model = models.CharField(max_length=100)
-
-    type_vehicle = models.CharField(
-        max_length=20,
-        choices=TIPO_CHOICES    )
-
-    color = models.CharField(
-        max_length=50,
-        choices=CORES_CHOICES
-    )
-
+    type_vehicle = models.CharField(max_length=20, choices=TIPO_CHOICES)   # presente no primeiro bloco
+    color = models.CharField(max_length=50, choices=CORES_CHOICES)
     plate = models.CharField(max_length=10)
-
     seats = models.IntegerField()
 
     def __str__(self):
         return f"{self.model} - {self.plate}"
 
 
+# ==========================================
+# 8. RIDE
+# ==========================================
 class Ride(BaseModelWithSoftDelete):
-
     STATUS_CHOICES = (
         ('pendente', 'Pendente'),
         ('confirmada', 'Confirmada'),
@@ -200,62 +204,35 @@ class Ride(BaseModelWithSoftDelete):
         on_delete=models.CASCADE,
         related_name="caronas"
     )
-
     origin = models.CharField(max_length=255)
-
     destination = models.CharField(max_length=255)
-
     expected_arrival = models.DateTimeField()
-
     start_time = models.DateTimeField()
-
-    end_time = models.DateTimeField(
-        null=True,
-        blank=True
-    )
-
+    end_time = models.DateTimeField(null=True, blank=True)
     available_seats = models.IntegerField()
-
-    status = models.CharField(
-        max_length=50,
-        choices=STATUS_CHOICES
-    )
-
-    price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2
-    )
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
 
     def clean(self):
         now = timezone.now()
 
         if self.expected_arrival and self.expected_arrival < now:
-            raise ValidationError(
-                "A previsão de chegada não pode ser uma data passada."
-            )
+            raise ValidationError("A previsão de chegada não pode ser uma data passada.")
 
         if self.expected_arrival and self.expected_arrival > (now + timedelta(days=90)):
-            raise ValidationError(
-                "A previsão de chegada não pode ultrapassar 3 meses a partir de hoje."
-            )
+            raise ValidationError("A previsão de chegada não pode ultrapassar 3 meses a partir de hoje.")
 
         if self.available_seats > self.vehicle.seats:
-            raise ValidationError(
-                f"O veículo possui apenas {self.vehicle.seats} assentos."
-            )
+            raise ValidationError(f"O veículo possui apenas {self.vehicle.seats} assentos.")
 
         if self.end_time and self.end_time <= self.start_time:
-            raise ValidationError(
-                "O horário final deve ser maior que o horário inicial."
-            )
+            raise ValidationError("O horário final deve ser maior que o horário inicial.")
 
         if self.expected_arrival and self.expected_arrival <= self.start_time:
-            raise ValidationError(
-                "A previsão de chegada deve ser após a saída."
-            )
+            raise ValidationError("A previsão de chegada deve ser após a saída.")
 
     def save(self, *args, **kwargs):
-        self.full_clean()
+        self.full_clean()   # usa full_clean (mais robusto)
 
         if timezone.now() >= self.start_time and self.status == 'confirmada':
             self.status = 'em_andamento'
@@ -266,23 +243,14 @@ class Ride(BaseModelWithSoftDelete):
         ).exclude(pk=self.pk)
 
         if conflict.exists():
-            raise ValidationError(
-                "O motorista já possui uma carona em andamento."
-            )
+            raise ValidationError("O motorista já possui uma carona em andamento.")
 
         if self.pk:
             orig = Ride.objects.get(pk=self.pk)
-
             if orig.status == 'cancelada':
-                raise ValidationError(
-                    "Corridas canceladas não podem ser alteradas."
-                )
-
-            if self.price != orig.price:
-                if self.reservations.exists():
-                    raise ValidationError(
-                        "O preço não pode ser alterado pois já existem reservas para esta corrida."
-                    )
+                raise ValidationError("Corridas canceladas não podem ser alteradas.")
+            if self.price != orig.price and self.reservations.exists():
+                raise ValidationError("O preço não pode ser alterado pois já existem reservas para esta corrida.")
 
         super().save(*args, **kwargs)
 
@@ -290,32 +258,20 @@ class Ride(BaseModelWithSoftDelete):
         return f"{self.origin} -> {self.destination}"
 
 
+# ==========================================
+# 9. RESERVATION (com lógica fundida e Kafka opcional)
+# ==========================================
 class Reservation(BaseModelWithSoftDelete):
-
     STATUS_CHOICES = (
         ('pendente', 'Pendente'),
         ('confirmada', 'Confirmada'),
         ('cancelada', 'Cancelada'),
     )
 
-    ride = models.ForeignKey(
-        Ride,
-        on_delete=models.CASCADE,
-        related_name="reservations"
-    )
-
-    passenger = models.ForeignKey(
-        UserClient,
-        on_delete=models.CASCADE,
-        related_name="reservations"
-    )
-
+    ride = models.ForeignKey(Ride, on_delete=models.CASCADE, related_name="reservations")
+    passenger = models.ForeignKey(UserClient, on_delete=models.CASCADE, related_name="reservations")
     requested_seats = models.PositiveIntegerField(default=1)
-
-    status = models.CharField(
-        max_length=50,
-        choices=STATUS_CHOICES
-    )
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES)
 
     class Meta:
         verbose_name = "Reserva"
@@ -323,56 +279,61 @@ class Reservation(BaseModelWithSoftDelete):
 
     def clean(self):
         if self.requested_seats <= 0:
-            raise ValidationError(
-                "A reserva deve ser de pelo menos 1 assento."
-            )
+            raise ValidationError("A reserva deve ser de pelo menos 1 assento.")
 
     @transaction.atomic
     def save(self, *args, **kwargs):
         self.full_clean()
 
-        nova_reserva = self.pk is None
+        is_new = self.pk is None
+        old_status = None
+        if not is_new:
+            old_status = Reservation.objects.get(pk=self.pk).status
 
-        if nova_reserva:
+        if is_new:
+            # Busca a ride atualizada do banco para checar vagas
             ride = Ride.objects.get(pk=self.ride.pk)
-
             if ride.available_seats < self.requested_seats:
                 raise ValidationError(
                     f"Vagas insuficientes. Você pediu {self.requested_seats}, mas só há {ride.available_seats} disponíveis."
                 )
-
+            # Atualiza as vagas usando F() para evitar race condition
             Ride.objects.filter(pk=self.ride.pk).update(
                 available_seats=F('available_seats') - self.requested_seats
             )
-
             self.ride.refresh_from_db()
-
         else:
             reserva_antiga = Reservation.objects.get(pk=self.pk)
-
             if self.requested_seats != reserva_antiga.requested_seats:
                 raise ValidationError(
-                    "Não é possível alterar a quantidade de vagas de uma reserva existente."
+                    "Não é possível alterar a quantidade de vagas de uma reserva existente. "
+                    "Por favor, cancele esta reserva e faça uma nova."
                 )
-
-            if (
-                reserva_antiga.status != 'cancelada'
-                and self.status == 'cancelada'
-            ):
+            if reserva_antiga.status != 'cancelada' and self.status == 'cancelada':
                 Ride.objects.filter(pk=self.ride.pk).update(
                     available_seats=F('available_seats') + self.requested_seats
                 )
-
                 self.ride.refresh_from_db()
 
         super().save(*args, **kwargs)
+
+        # Integração com Kafka (conforme segundo bloco) – somente se a reserva for confirmada
+        if self.status == 'confirmada' and (is_new or old_status != 'confirmada'):
+            try:
+                from .kafka_producer import send_ride_event
+                send_ride_event(self.ride)
+            except ImportError:
+                # Caso o módulo Kafka não exista, apenas ignora (não quebra a aplicação)
+                pass
 
     def __str__(self):
         return f"Reserva {self.pk} ({self.requested_seats} vagas) - {self.passenger.name}"
 
 
+# ==========================================
+# 10. AUDIT PROXIES (easyaudit)
+# ==========================================
 class UserClientAudit(CRUDEvent):
-
     class Meta:
         proxy = True
         verbose_name = 'Auditoria de UserClient'
@@ -380,7 +341,6 @@ class UserClientAudit(CRUDEvent):
 
 
 class VehicleAudit(CRUDEvent):
-
     class Meta:
         proxy = True
         verbose_name = 'Auditoria de Veículo'
@@ -388,7 +348,6 @@ class VehicleAudit(CRUDEvent):
 
 
 class RideAudit(CRUDEvent):
-
     class Meta:
         proxy = True
         verbose_name = 'Auditoria de Carona'
@@ -396,7 +355,6 @@ class RideAudit(CRUDEvent):
 
 
 class ReservationAudit(CRUDEvent):
-
     class Meta:
         proxy = True
         verbose_name = 'Auditoria de Reserva'

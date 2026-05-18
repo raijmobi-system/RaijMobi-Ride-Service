@@ -134,3 +134,5 @@ REST_FRAMEWORK = {
         'django_filters.rest_framework.DjangoFilterBackend',
     ]
 }
+
+KAFKA_BOOTSTRAP_SERVERS_RIDE = os.environ.get('KAFKA_BOOTSTRAP_SERVERS_RIDE', 'kafka-ride:9092')
