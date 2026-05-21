@@ -32,16 +32,34 @@ class ReservationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Status inválido.")
         return value
 
+    # def validate(self, data):
+    #     # ride = data.get('ride')
+    #     # requested_seats = data.get('requested_seats', 1)
+
+    #     # if ride.available_seats < requested_seats:
+    #     #     raise serializers.ValidationError({
+    #     #         "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
+    #     #     })
+    #     # return data
+    #     if self.instance is None:
+    #         ride = data.get('ride')
+    #         requested_seats = data.get('requested_seats', 1)
+    #         if ride and ride.available_seats < requested_seats:
+    #             raise serializers.ValidationError({
+    #                 "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
+    #             })
+    #     return data
+
     def validate(self, data):
-        ride = data.get('ride')
-        requested_seats = data.get('requested_seats', 1)
-
-        if ride.available_seats < requested_seats:
-            raise serializers.ValidationError({
-                "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
-            })
+        # Só verifica vagas na criação (POST)
+        if self.instance is None:
+            ride = data.get('ride')
+            requested_seats = data.get('requested_seats', 1)
+            if ride and ride.available_seats < requested_seats:
+                raise serializers.ValidationError({
+                    "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
+                })
         return data
-
 
 class RideSerializer(serializers.ModelSerializer):
     class Meta:
