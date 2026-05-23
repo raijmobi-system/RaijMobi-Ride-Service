@@ -183,6 +183,22 @@ class Vehicle(BaseModelWithSoftDelete):
     plate = models.CharField(max_length=10)
     seats = models.IntegerField()
 
+    def clean(self):
+
+        if self.type_vehicle == 'moto' and self.seats > 2:
+            raise ValidationError(
+                "Moto pode ter no máximo 2 assentos."
+            )
+        
+        if self.seats <= 0:
+            raise ValidationError(
+                "O veículo deve possuir pelo menos 1 assento."
+            )
+    
+    def save(self,*args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.model} - {self.plate}"
 
