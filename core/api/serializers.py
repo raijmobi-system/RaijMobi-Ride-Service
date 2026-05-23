@@ -145,3 +145,18 @@ class VehicleSerializer(serializers.ModelSerializer):
         if not value.is_driver:
             raise serializers.ValidationError("O usuário não é motorista.")
         return value
+    
+    def validate(self,data):
+
+        type_vehicle = data.get('type_vehicle')
+        seats = data.get('seats')
+
+        if type_vehicle == 'moto' and seats > 2:
+            raise serializers.ValidationError({
+                "seats: Moto pode ter no máximo 2 assentos."
+            })
+        
+        if seats <= 0:
+            raise serializers.ValidationError({
+                "seats": "O veículo deve possuir pelo menos 1 assento."
+            })
