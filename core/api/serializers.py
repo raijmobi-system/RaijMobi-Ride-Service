@@ -147,17 +147,27 @@ class VehicleSerializer(serializers.ModelSerializer):
     
 class RatingSerializer(serializers.ModelSerializer):
 
-        class Meta:
-            model = Rating
-            fields = [
+    evaluator_name = serializers.CharField(
+        source='evaluator.name',
+        read_only=True
+    )
+
+    evaluated_name = serializers.CharField(
+        source='evaluated.name',
+        read_only=True
+    )
+
+    class Meta:
+        model = Rating
+        fields = [
             'id',
             'reservation',
             'evaluator',
+            'evaluator_name',
             'evaluated',
+            'evaluated_name',
             'score',
-            'comment' 
-            ]
-        
+        ]
         def validate_score(self,value):
 
             if value < 0 or value >5:
