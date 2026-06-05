@@ -433,23 +433,48 @@ class ReservationAudit(CRUDEvent):
 
 class Rating(BaseModelWithSoftDelete):
 
-    reservation = models.ForeignKey(Reservation,on_delete=models.CASCADE,related_name="ratings")
-    evaluator = models.ForeignKey(UserClient,on_delete=models.CASCADE,related_name="ratings_given")
-    evaluated = models.ForeignKey(UserClient,on_delete=models.CASCADE,related_name="rating_received")
-    score = models.DecimalField(max_digits=2,decimal_places=1)
-    coment = models.TextField(blank=True,null=True)
+    reservation = models.ForeignKey(
+        Reservation,
+        on_delete=models.CASCADE,
+        related_name="ratings"
+    )
+
+    evaluator = models.ForeignKey(
+        UserClient,
+        on_delete=models.CASCADE,
+        related_name="ratings_given"
+    )
+
+    evaluated = models.ForeignKey(
+        UserClient,
+        on_delete=models.CASCADE,
+        related_name="ratings_received"
+    )
+
+    score = models.DecimalField(
+        max_digits=3,
+        decimal_places=1
+    )
 
     def clean(self):
 
-        if self.core < 0 or self.core > 5:
+        if self.score < 0 or self.score > 5:
             raise ValidationError(
                 "A nota deve estar entre 0 e 5."
             )
-        
-        if (self.score * 10) % 1 != 0:
+
+        if self.evaluator == self.evaluated:
             raise ValidationError(
-                "A nota deve utilizar intevralos de 0.1"
+                "Um usuário não pode avaliar a si mesmo."
             )
-        
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['reservation', 'evaluator'],
+                name='unique_rating_per_reservation'
+            )
+        ]
+
     def __str__(self):
         return f"{self.evaluator} -> {self.evaluated} ({self.score})"
