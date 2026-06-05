@@ -11,6 +11,8 @@ from easyaudit.models import CRUDEvent
 
 from .manager import SoftDeleteManager
 
+from django.db.models import Avg
+
 
 # ==========================================
 # 1. FUNÇÃO SENTINELA
@@ -128,6 +130,15 @@ class UserClient(TimeStampedModel):
     )
     name = models.CharField(max_length=255, default='Unknown')
     is_driver = models.BooleanField(default=False)   # mantido do primeiro bloco
+
+    @property
+    def average_rating(self):
+        return (
+            self.rating_received.aggregate(
+                media=Avg('score')
+            )['media']
+            or 0
+        )
 
     def __str__(self):
         return self.name
@@ -419,3 +430,26 @@ class ReservationAudit(CRUDEvent):
         proxy = True
         verbose_name = 'Auditoria de Reserva'
         verbose_name_plural = 'Auditorias de Reservas'
+
+class Rating(BaseModelWithSoftDelete):
+
+    reservation = models.ForeignKey(Reservation,on_delete=models.CASCADE,related_name="ratings")
+    evaluator = models.ForeignKey(UserClient,on_delete=models.CASCADE,related_name="ratings_given")
+    evaluated = models.ForeignKey(UserClient,on_delete=models.CASCADE,related_name="rating_received")
+    score = models.DecimalField(max_digits=2,decimal_places=1)
+    coment = models.TextField(blank=True,null=True)
+
+    def clean(self):
+
+        if self.core < 0 or self.core > 5:
+            raise ValidationError(
+                "A nota deve estar entre 0 e 5."
+            )
+        
+        if (self.score * 10) % 1 != 0:
+            raise ValidationError(
+                "A nota deve utilizar intevralos de 0.1"
+            )
+        
+    def __str__(self):
+        return f"{self.evaluator} -> {self.evaluated} ({self.score})"

@@ -1,6 +1,6 @@
 from rest_framework.viewsets import ModelViewSet
-from ..models import Reservation,Ride,Vehicle
-from .serializers import ReservationSerializer,RideSerializer,VehicleSerializer
+from ..models import Reservation,Ride,Vehicle,Rating
+from .serializers import ReservationSerializer,RideSerializer,VehicleSerializer, RatingSerializer
 
 class ReservationViewset(ModelViewSet):
     queryset = Reservation.objects.all()
@@ -13,5 +13,10 @@ class RideViewset(ModelViewSet):
 class VehicleViewset(ModelViewSet):
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
+
+class RatingViewset(ModelViewSet):
+
+    queryset = Rating.objects.all()
+    serializer_class = RatingSerializer
 
     
