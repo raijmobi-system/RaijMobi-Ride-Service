@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from ..models import Reservation, Ride, UserClient, Vehicle
+from ..models import Reservation, Ride, UserClient, Vehicle, Rating
 
 
 class UserClientSerializer(serializers.ModelSerializer):
@@ -32,23 +32,7 @@ class ReservationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Status inválido.")
         return value
 
-    # def validate(self, data):
-    #     # ride = data.get('ride')
-    #     # requested_seats = data.get('requested_seats', 1)
 
-    #     # if ride.available_seats < requested_seats:
-    #     #     raise serializers.ValidationError({
-    #     #         "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
-    #     #     })
-    #     # return data
-    #     if self.instance is None:
-    #         ride = data.get('ride')
-    #         requested_seats = data.get('requested_seats', 1)
-    #         if ride and ride.available_seats < requested_seats:
-    #             raise serializers.ValidationError({
-    #                 "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
-    #             })
-    #     return data
 
     def validate(self, data):
         # Só verifica vagas na criação (POST)
@@ -160,3 +144,25 @@ class VehicleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 "seats": "O veículo deve possuir pelo menos 1 assento."
             })
+    
+class RatingSerializer(serializers.ModelSerializer):
+
+        class Meta:
+            model = Rating
+            fields = [
+            'id',
+            'reservation',
+            'evaluator',
+            'evaluated',
+            'score',
+            'comment' 
+            ]
+        
+        def validate_score(self,value):
+
+            if value < 0 or value >5:
+                raise serializers.ValidationError(
+                    "A nota deve estar entre 0 e 5."
+                )
+            
+            return value
