@@ -131,13 +131,34 @@ class UserClient(TimeStampedModel):
     name = models.CharField(max_length=255, default='Unknown')
     is_driver = models.BooleanField(default=False)   # mantido do primeiro bloco
 
-    @property
-    def average_rating(self):
-        return (
-            self.rating_received.aggregate(
+    average_rating = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        default=0
+    )
+
+    average_rating_update_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    def recalculate_average_rating(self):
+
+        media = (
+            self.ratings_received.aggregate(
                 media=Avg('score')
             )['media']
             or 0
+        )
+
+        self.average_rating = media
+        self.average_rating_update_at = timezone.now()
+
+        self.save(
+            update_fields=[
+                'average_rating',
+                'average_rating_update_at'
+            ]
         )
 
     def __str__(self):
@@ -468,6 +489,35 @@ class Rating(BaseModelWithSoftDelete):
                 "Um usuário não pode avaliar a si mesmo."
             )
 
+    def save(self, *args, **kwargs):
+
+        self.full_clean()
+
+        is_new = self.pk is None
+
+        first_rating = (
+            is_new
+            and not Rating.objects.filter(
+                evaluated=self.evaluated
+            ).exists()
+        )
+
+        super().save(*args, **kwargs)
+
+        should_update = False
+
+        if first_rating:
+            should_update = True
+
+        elif (
+            self.evaluated.average_rating_update_at is None
+            or timezone.now() - self.evaluated.average_rating_update_at >= timedelta(hours=12)
+        ):
+            should_update = True
+
+        if should_update:
+            self.evaluated.recalculate_average_rating()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -477,4 +527,8 @@ class Rating(BaseModelWithSoftDelete):
         ]
 
     def __str__(self):
-        return f"{self.evaluator} -> {self.evaluated} ({self.score})"
+        return (
+            f"{self.evaluator} -> "
+            f"{self.evaluated} "
+            f"({self.score})"
+        )
