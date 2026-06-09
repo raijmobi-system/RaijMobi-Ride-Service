@@ -7,7 +7,7 @@ from ..models import Reservation, Ride, UserClient, Vehicle, Rating
 class UserClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserClient
-        fields = ['id', 'name', 'is_driver']
+        fields = ['id', 'name', 'is_driver','average_rating']
 
 
 class ReservationSerializer(serializers.ModelSerializer):
