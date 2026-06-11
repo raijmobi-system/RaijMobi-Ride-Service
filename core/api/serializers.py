@@ -5,9 +5,20 @@ from ..models import Reservation, Ride, UserClient, Vehicle, Rating
 
 
 class UserClientSerializer(serializers.ModelSerializer):
+
+    is_suspended = serializers.ReadOnlyField()
+
     class Meta:
         model = UserClient
-        fields = ['id', 'name', 'is_driver','average_rating']
+        fields = [
+            'id', 
+            'name', 
+            'is_driver',
+            'average_rating',
+            'warning_count',
+            'suspension_until',
+            'is_suspended'
+            ]
 
 
 class ReservationSerializer(serializers.ModelSerializer):
@@ -30,6 +41,15 @@ class ReservationSerializer(serializers.ModelSerializer):
         valid_status = ['pendente', 'confirmada', 'cancelada']
         if value not in valid_status:
             raise serializers.ValidationError("Status inválido.")
+        return value
+    
+    def validate_passenger(self,value):
+
+        if value.is_suspended:
+            raise serializers.ValidationError(
+                "Usuário suspenso temporariamente."
+            )
+        
         return value
 
 

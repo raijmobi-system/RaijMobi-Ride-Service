@@ -141,6 +141,31 @@ class UserClient(TimeStampedModel):
         null=True,
         blank=True
     )
+    warning_count = models.PositiveIntegerField(default=0)
+
+    suspension_until = models.DateTimeField(null=True,blank=True)
+
+    @property
+    def is_suspended(self):
+        return(
+            self.suspension_until
+            and self.suspension_until > timezone.now()
+        )
+    def register_cancelation(self):
+
+        self.warning_count += 1
+
+        if self.warning_count >= 5:
+            self.suspension_until = (
+                timezone.now() +
+                timedelta(days=7)
+            )
+        self.save(
+            update_fields=[
+                'warning_count',
+                'suspension_until'
+            ]
+        )
 
     def recalculate_average_rating(self):
 
@@ -400,6 +425,9 @@ class Reservation(BaseModelWithSoftDelete):
                 Ride.objects.filter(pk=self.ride.pk).update(
                     available_seats=F('available_seats') + self.requested_seats
                 )
+
+                self.passenger.register_cancelation()
+
                 self.ride.refresh_from_db()
 
         super().save(*args, **kwargs)
