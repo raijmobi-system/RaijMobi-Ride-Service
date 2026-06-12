@@ -192,7 +192,7 @@ class RatingSerializer(serializers.ModelSerializer):
 
             if value < 0 or value >5:
                 raise serializers.ValidationError(
-                    "A nota deve estar entre 0 e 5."
+                    "A nota deve estar entre 1 e 5 estrelas."
                 )
             
             return value

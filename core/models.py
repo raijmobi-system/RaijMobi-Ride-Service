@@ -500,16 +500,13 @@ class Rating(BaseModelWithSoftDelete):
         related_name="ratings_received"
     )
 
-    score = models.DecimalField(
-        max_digits=3,
-        decimal_places=1
-    )
+    score =  models.PositiveSmallIntegerField()
 
     def clean(self):
 
-        if self.score < 0 or self.score > 5:
+        if self.score <1 or self.score > 5:
             raise ValidationError(
-                "A nota deve estar entre 0 e 5."
+                "A nota deve estar entre 1 e 5 estrelas."
             )
 
         if self.evaluator == self.evaluated:
