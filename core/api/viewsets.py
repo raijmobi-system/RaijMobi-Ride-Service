@@ -19,6 +19,17 @@ class RatingViewset(ModelViewSet):
     queryset = Rating.objects.all()
     serializer_class = RatingSerializer
 
+    def perform_create(self, serializer):
+        
+        user = UserClient.objects.get(
+            id=self.request.data.get("evaluator")
+        )
+
+        serializer.save(
+            created_by=user,
+            updated_by=user
+        )
+
 
 class UserClientViewset(ModelViewSet):
     queryset = UserClient.objects.all()
