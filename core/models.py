@@ -145,12 +145,26 @@ class UserClient(TimeStampedModel):
 
     suspension_until = models.DateTimeField(null=True,blank=True)
 
+    MAX_ACTIVE_RIDES = 3
+
     @property
     def is_suspended(self):
         return(
             self.suspension_until
             and self.suspension_until > timezone.now()
+
         )
+    def can_create_ride(self):
+        from .models import Ride
+
+        active_rides_count = Ride.objects.filter(
+            vehicle__user=self,
+            status__in=['pendente','confirmada','em_andamento']
+        ).count()
+
+        return active_rides_count < self.MAX_ACTIVE_RIDES
+
+
     def register_cancelation(self):
 
         self.warning_count += 1
@@ -279,9 +293,11 @@ class Ride(BaseModelWithSoftDelete):
     )
     origin = models.CharField(max_length=255)
     destination = models.CharField(max_length=255)
+
     expected_arrival = models.DateTimeField()
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
+    
     available_seats = models.IntegerField()
     status = models.CharField(max_length=50, choices=STATUS_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -353,49 +369,6 @@ class Reservation(BaseModelWithSoftDelete):
         if self.requested_seats <= 0:
             raise ValidationError("A reserva deve ser de pelo menos 1 assento.")
 
-    # @transaction.atomic
-    # def save(self, *args, **kwargs):
-
-    #     is_new = self.pk is None
-    #     old_status = None
-    #     if not is_new:
-    #         old_status = Reservation.objects.get(pk=self.pk).status
-
-    #     if is_new:
-    #         # Busca a ride atualizada do banco para checar vagas
-    #         ride = Ride.objects.get(pk=self.ride.pk)
-    #         if ride.available_seats < self.requested_seats:
-    #             raise ValidationError(
-    #                 f"Vagas insuficientes. Você pediu {self.requested_seats}, mas só há {ride.available_seats} disponíveis."
-    #             )
-    #         # Atualiza as vagas usando F() para evitar race condition
-    #         Ride.objects.filter(pk=self.ride.pk).update(
-    #             available_seats=F('available_seats') - self.requested_seats
-    #         )
-    #         self.ride.refresh_from_db()
-    #     else:
-    #         reserva_antiga = Reservation.objects.get(pk=self.pk)
-    #         if self.requested_seats != reserva_antiga.requested_seats:
-    #             raise ValidationError(
-    #                 "Não é possível alterar a quantidade de vagas de uma reserva existente. "
-    #                 "Por favor, cancele esta reserva e faça uma nova."
-    #             )
-    #         if reserva_antiga.status != 'cancelada' and self.status == 'cancelada':
-    #             Ride.objects.filter(pk=self.ride.pk).update(
-    #                 available_seats=F('available_seats') + self.requested_seats
-    #             )
-    #             self.ride.refresh_from_db()
-
-    #     super().save(*args, **kwargs)
-
-    #     # Integração com Kafka (conforme segundo bloco) – somente se a reserva for confirmada
-    #     if self.status == 'confirmada' and (is_new or old_status != 'confirmada'):
-    #         try:
-    #             from .kafka_producer import send_ride_event
-    #             send_ride_event(self.ride)
-    #         except ImportError:
-    #             # Caso o módulo Kafka não exista, apenas ignora (não quebra a aplicação)
-    #             pass
 
     @transaction.atomic
     def save(self, *args, **kwargs):

@@ -91,10 +91,16 @@ class RideSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         vehicle = data['vehicle']
+        user = vehicle.user
         available_seats = data['available_seats']
         start_time = data.get('start_time')
         end_time = data.get('end_time')
         expected_arrival = data.get('expected_arrival')
+
+        if not user.can_create_ride():
+         raise serializers.ValidationError(
+            "Limite de caronas ativas atingido para este motorista."
+        )
 
         if available_seats > vehicle.seats:
             raise serializers.ValidationError({
@@ -164,6 +170,7 @@ class VehicleSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 "seats": "O veículo deve possuir pelo menos 1 assento."
             })
+        return data
     
 class RatingSerializer(serializers.ModelSerializer):
 
