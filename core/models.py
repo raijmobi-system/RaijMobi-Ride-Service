@@ -145,6 +145,8 @@ class UserClient(TimeStampedModel):
 
     suspension_until = models.DateTimeField(null=True,blank=True)
 
+    MAX_ACTIVE_RESERVATIONS = 3
+
     MAX_ACTIVE_RIDES = 3
 
     @property
@@ -163,6 +165,13 @@ class UserClient(TimeStampedModel):
         ).count()
 
         return active_rides_count < self.MAX_ACTIVE_RIDES
+    
+    def can_make_reservation(self):
+        active_reservations = self.reservations.filter(
+            status__in=['pendente', 'confirmada']
+        ).count()
+
+        return active_reservations < self.MAX_ACTIVE_RESERVATIONS
 
 
     def register_cancelation(self):

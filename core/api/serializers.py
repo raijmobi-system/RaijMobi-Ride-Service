@@ -43,14 +43,19 @@ class ReservationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Status inválido.")
         return value
     
-    def validate_passenger(self,value):
+    def validate_passenger(self, value):
 
-        if value.is_suspended:
-            raise serializers.ValidationError(
-                "Usuário suspenso temporariamente."
-            )
-        
-        return value
+       if value.is_suspended:
+        raise serializers.ValidationError(
+            "Usuário suspenso temporariamente."
+        )
+
+       if not value.can_make_reservation():
+        raise serializers.ValidationError(
+            "Limite de reservas ativas atingido."
+        )
+
+       return value
 
 
 
