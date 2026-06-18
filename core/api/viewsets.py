@@ -6,9 +6,6 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 
 class ReservationViewset(ModelViewSet):
-    
-    permission_classes = [IsDriver]
-    
     queryset = Reservation.objects.all()
     serializer_class = ReservationSerializer
 
@@ -17,9 +14,6 @@ class ReservationViewset(ModelViewSet):
 #     serializer_class = RideSerializer
 
 class VehicleViewset(ModelViewSet):
-
-    permission_classes = [IsDriver]
-
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
 
