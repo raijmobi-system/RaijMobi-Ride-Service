@@ -12,6 +12,8 @@ from easyaudit.models import CRUDEvent
 from .manager import SoftDeleteManager
 
 from django.db.models import Avg
+from .notification_producer import send_ride_notification
+from django.db import transaction
 
 
 # ==========================================
@@ -430,6 +432,36 @@ class Reservation(BaseModelWithSoftDelete):
     
     def __str__(self):
         return f"Reserva {self.pk} ({self.requested_seats} vagas) - {self.passenger.name}"
+    
+    def _send_notifications(self, is_new, old_status):
+        motorista = self.ride.vehicle.user
+        passageiro = self.passenger
+
+        if is_new:
+            msg = f"Novo pedido de carona para {self.ride.origin} → {self.ride.destination}"
+            send_ride_notification(motorista.id, msg)
+        else:
+            if old_status != self.status:
+                if self.status == 'confirmada':
+                    msg = f"Sua reserva para {self.ride.origin} → {self.ride.destination} foi aceita por {motorista.name}."
+                    send_ride_notification(passageiro.id, msg)
+                elif self.status == 'cancelada':
+                    # Notifica ambos (quem cancelou não importa)
+                    send_ride_notification(motorista.id, f"Reserva cancelada para {self.ride.origin} → {self.ride.destination}.")
+                    send_ride_notification(passageiro.id, f"Sua reserva para {self.ride.origin} → {self.ride.destination} foi cancelada.")
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        old_status = None
+        if not is_new:
+            old_status = Reservation.objects.get(pk=self.pk).status
+
+        # lógica original de save (com atualização de vagas etc.)
+        super().save(*args, **kwargs)
+
+        # Envia notificações após o commit
+        transaction.on_commit(lambda: self._send_notifications(is_new, old_status))
+
 
 
 # ==========================================
