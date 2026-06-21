@@ -14,10 +14,6 @@ from django.contrib.contenttypes.models import ContentType
 from .models import UserClient, Vehicle, Ride, Reservation  # modelos originais
 from .models import UserClientAudit, VehicleAudit, RideAudit, ReservationAudit  # proxies (se definidos no models.py)
 
-# Se você colocou os proxies em audit_models.py, importe de lá:
-# from .audit_models import UserClientAudit, VehicleAudit, RideAudit, ReservationAudit
-
-
 class UserClientAuditAdmin(admin.ModelAdmin):
     list_display = ('event_type', 'user', 'datetime', 'object_repr')
     list_filter = ('event_type', 'user', 'datetime')
