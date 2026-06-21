@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'core',
     'django_filters',
     'easyaudit',
+    'django_prometheus',
 ]
 
 MIDDLEWARE = [
@@ -56,6 +57,8 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'easyaudit.middleware.easyaudit.EasyAuditMiddleware',
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",
+     "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 ROOT_URLCONF = 'ride_service.urls'

@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from easyaudit.models import CRUDEvent
 from .manager import SoftDeleteManager
 from .notification_producer import send_ride_notification
+from .metrics import rides_total,reservations_total,cancelations_total
 
 # ==========================
 # SENTINELA
@@ -159,8 +160,12 @@ class Ride(BaseModelWithSoftDelete):
             raise ValidationError("Chegada deve ser depois da saída.")
 
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
         self.clean()
         super().save(*args, **kwargs)
+
+        if is_new:
+            rides_total.inc()
 
     def __str__(self):
         return f"{self.origin} -> {self.destination}"
@@ -183,6 +188,9 @@ class Reservation(BaseModelWithSoftDelete):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
+        if is_new:
+           reservations_total.inc()
+
         is_new = self.pk is None
         old_status = None
 
@@ -191,6 +199,7 @@ class Reservation(BaseModelWithSoftDelete):
             old_status = reserva_antiga.status
             
             if reserva_antiga.status != "cancelada" and self.status == "cancelada":
+                cancelations_total.inc()
                 if self.ride.status in ["em_andamento", "finalizada"]:
                     raise ValidationError("Não é possível cancelar esta carona.")
                 
