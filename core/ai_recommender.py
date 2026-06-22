@@ -167,7 +167,7 @@ Sem nenhum texto adicional.
         }
         return result[:top_n]
 
-# core/ai_recommender.py (adicionar no final)
+
 class AIFilterExtractor:
     def __init__(self):
         self.provider = get_ai_provider()
@@ -197,7 +197,6 @@ Retorne APENAS o JSON.
         try:
             raw = self.provider.chat(prompt)
             logger.info(f"Resposta bruta da IA (filtro): {raw[:200]}...")
-            # Limpa possíveis marcações
             if "```" in raw:
                 start = raw.find("{")
                 end = raw.rfind("}")
@@ -208,20 +207,40 @@ Retorne APENAS o JSON.
             logger.error(f"Erro ao extrair filtros com IA: {e}")
             filters = {}
 
-        # 2. Fallback com regex (sempre aplicado para complementar)
-        # Extrai origem: "de X para Y" ou "X para Y"
-        origin_match = re.search(r'(?:de\s+)?([^,para]+?)\s+para\s+', text, re.IGNORECASE)
+        # 2. Fallback com regex (SEMPRE aplicado, corrigindo/complementando a IA)
+        # 2.1 Extrai origem: "Terminal Central para Shopping" → origem = "Terminal Central"
+        # Padrão: captura tudo ANTES de "para", ignorando artigos "de", "do", "da"
+        origin_match = re.search(r'(?:de\s+)?([A-Za-zÀ-ÖØ-öø-ÿ\s]+?)\s+para\s+', text, re.IGNORECASE)
         if origin_match:
-            filters['origin'] = origin_match.group(1).strip()
-        # Extrai destino: após "para"
-        dest_match = re.search(r'para\s+([^,]+?)(?:\s+até|\s*$)', text, re.IGNORECASE)
+            origem = origin_match.group(1).strip()
+            # Se a IA retornou origem com menos de 2 caracteres, substitui
+            if not filters.get('origin') or len(filters.get('origin', '')) <= 2:
+                filters['origin'] = origem
+            else:
+                # Mesmo se a IA retornou algo, podemos manter o que veio da IA (mas geralmente a IA é melhor)
+                pass
+
+        # 2.2 Extrai destino: após "para", até "até" ou fim da string
+        dest_match = re.search(r'para\s+([A-Za-zÀ-ÖØ-öø-ÿ\s]+?)(?:\s+até|\s*$)', text, re.IGNORECASE)
         if dest_match:
-            filters['destination'] = dest_match.group(1).strip()
-        # Extrai preço: "até 40" ou "R$ 40"
-        price_match = re.search(r'(?:até|R?\$?)\s*(\d+[,.]?\d*)', text, re.IGNORECASE)
+            destino = dest_match.group(1).strip()
+            # Se a IA não extraiu destino ou extraiu algo muito curto, usa o fallback
+            if not filters.get('destination') or len(filters.get('destination', '')) <= 2:
+                filters['destination'] = destino
+
+        # 2.3 Extrai preço: "até 40" ou "R$ 40" ou "40 reais"
+        # Prioriza padrão com "até"
+        price_match = re.search(r'até\s*(\d+[,.]?\d*)', text, re.IGNORECASE)
+        if not price_match:
+            # Tenta "R$" ou número seguido de "reais"
+            price_match = re.search(r'(?:R?\$?)\s*(\d+[,.]?\d*)\s*(?:reais)?', text, re.IGNORECASE)
         if price_match:
-            filters['price_max'] = float(price_match.group(1).replace(',', '.'))
-        # Extrai tipo de veículo
+            preco = float(price_match.group(1).replace(',', '.'))
+            # Se a IA não extraiu preço, ou extraiu um número diferente, usa o do fallback
+            if not filters.get('price_max') or filters.get('price_max') != preco:
+                filters['price_max'] = preco
+
+        # 2.4 Extrai tipo de veículo
         if re.search(r'\bcarro\b', text, re.IGNORECASE):
             filters['vehicle_type'] = 'carro'
         elif re.search(r'\bmoto\b', text, re.IGNORECASE):
@@ -229,9 +248,10 @@ Retorne APENAS o JSON.
 
         # 3. Normalização e limpeza
         if 'origin' in filters:
-            filters['origin'] = filters['origin'].strip().title()
+            # Capitaliza cada palavra (ex: "terminal central" → "Terminal Central")
+            filters['origin'] = ' '.join(word.capitalize() for word in filters['origin'].strip().split())
         if 'destination' in filters:
-            dest = filters['destination'].strip().title()
+            dest = ' '.join(word.capitalize() for word in filters['destination'].strip().split())
             # Se destination for "Carro" ou "Moto", mover para vehicle_type
             if dest.lower() in ['Carro', 'Moto']:
                 filters['vehicle_type'] = dest.lower()
@@ -243,5 +263,5 @@ Retorne APENAS o JSON.
 
         # Remove campos vazios ou None
         filters = {k: v for k, v in filters.items() if v not in [None, 'null', '']}
-        logger.info(f"Filtros extraídos: {filters}")
+        logger.info(f"Filtros extraídos (final): {filters}")
         return filters
