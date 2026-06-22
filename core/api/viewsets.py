@@ -4,6 +4,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from ..models import UserClient, Vehicle, Ride, Reservation, Rating
 from .serializers import UserClientSerializer, VehicleSerializer, RideSerializer, ReservationSerializer, RatingSerializer
 from .filters import RideFilter
+from ..ai_recommender import AIRideRecommender
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 class UserClientViewset(ModelViewSet):
     queryset = UserClient.objects.all()
@@ -21,6 +24,29 @@ class RideViewset(ModelViewSet):
     search_fields = ["origin", "destination", "vehicle__model"]
     ordering_fields = ["price", "start_time", "available_seats"]
     ordering = ["start_time"]
+
+    @action(detail=False, methods=['get'], url_path='ai-recommendations')
+    def ai_recommendations(self, request):
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'error': 'user_id é obrigatório'}, status=400)
+        try:
+            user = UserClient.objects.get(id=user_id)
+        except UserClient.DoesNotExist:
+            return Response({'error': 'Usuário não encontrado'}, status=404)
+
+        top_n = int(request.query_params.get('top_n', 5))
+        recommender = AIRideRecommender()
+        results = recommender.recommend(user_id, top_n)
+
+        # Serializa as caronas
+        rides = [item['ride'] for item in results]
+        reasons = [item['reason'] for item in results]
+        serializer = RideSerializer(rides, many=True, context={'request': request})
+        data = serializer.data
+        for i, item in enumerate(data):
+            item['ai_reason'] = reasons[i] if i < len(reasons) else ""
+        return Response(data)
 
 class ReservationViewset(ModelViewSet):
     queryset = Reservation.objects.all()
