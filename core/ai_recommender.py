@@ -166,3 +166,82 @@ Sem nenhum texto adicional.
             'data': result[:top_n]
         }
         return result[:top_n]
+
+# core/ai_recommender.py (adicionar no final)
+class AIFilterExtractor:
+    def __init__(self):
+        self.provider = get_ai_provider()
+
+    def extract_filters(self, text: str) -> dict:
+        import re
+        filters = {}
+
+        # 1. Tenta extrair com IA
+        prompt = f"""
+Você é um assistente que extrai critérios de busca de caronas a partir de um texto em português.
+O texto do usuário é: "{text}"
+
+Extraia APENAS os campos explicitamente mencionados. Não invente valores.
+Campos possíveis:
+- "origin": local de partida
+- "destination": local de destino
+- "price_max": preço máximo (número)
+- "vehicle_type": "carro" ou "moto"
+- "start_time_after": só se mencionar dia/horário
+
+Exemplo: para "Terminal Central para Shopping até 40" a saída deve ser:
+{{ "origin": "Terminal Central", "destination": "Shopping", "price_max": 40 }}
+
+Retorne APENAS o JSON.
+"""
+        try:
+            raw = self.provider.chat(prompt)
+            logger.info(f"Resposta bruta da IA (filtro): {raw[:200]}...")
+            # Limpa possíveis marcações
+            if "```" in raw:
+                start = raw.find("{")
+                end = raw.rfind("}")
+                if start != -1 and end != -1:
+                    raw = raw[start:end+1]
+            filters = json.loads(raw)
+        except Exception as e:
+            logger.error(f"Erro ao extrair filtros com IA: {e}")
+            filters = {}
+
+        # 2. Fallback com regex (sempre aplicado para complementar)
+        # Extrai origem: "de X para Y" ou "X para Y"
+        origin_match = re.search(r'(?:de\s+)?([^,para]+?)\s+para\s+', text, re.IGNORECASE)
+        if origin_match:
+            filters['origin'] = origin_match.group(1).strip()
+        # Extrai destino: após "para"
+        dest_match = re.search(r'para\s+([^,]+?)(?:\s+até|\s*$)', text, re.IGNORECASE)
+        if dest_match:
+            filters['destination'] = dest_match.group(1).strip()
+        # Extrai preço: "até 40" ou "R$ 40"
+        price_match = re.search(r'(?:até|R?\$?)\s*(\d+[,.]?\d*)', text, re.IGNORECASE)
+        if price_match:
+            filters['price_max'] = float(price_match.group(1).replace(',', '.'))
+        # Extrai tipo de veículo
+        if re.search(r'\bcarro\b', text, re.IGNORECASE):
+            filters['vehicle_type'] = 'carro'
+        elif re.search(r'\bmoto\b', text, re.IGNORECASE):
+            filters['vehicle_type'] = 'moto'
+
+        # 3. Normalização e limpeza
+        if 'origin' in filters:
+            filters['origin'] = filters['origin'].strip().title()
+        if 'destination' in filters:
+            dest = filters['destination'].strip().title()
+            # Se destination for "Carro" ou "Moto", mover para vehicle_type
+            if dest.lower() in ['Carro', 'Moto']:
+                filters['vehicle_type'] = dest.lower()
+                del filters['destination']
+            else:
+                filters['destination'] = dest
+        if 'vehicle_type' in filters:
+            filters['vehicle_type'] = filters['vehicle_type'].lower()
+
+        # Remove campos vazios ou None
+        filters = {k: v for k, v in filters.items() if v not in [None, 'null', '']}
+        logger.info(f"Filtros extraídos: {filters}")
+        return filters
