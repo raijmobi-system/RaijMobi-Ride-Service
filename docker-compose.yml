@@ -37,7 +37,7 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092
       - ALLOWED_HOSTS=*
       - AI_PROVIDER=ollama
-      - OLLAMA_URL=http://host.docker.internal:11434
+      - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=llama3.2:3b
     extra_hosts:
       - "host.docker.internal:host-gateway"
