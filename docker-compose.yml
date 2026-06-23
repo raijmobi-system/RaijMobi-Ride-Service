@@ -21,24 +21,27 @@ services:
     networks:
       - raijmobi-network
 
-
   ride-app:
     build: .
     container_name: ride-service
     command: >
       sh -c "python manage.py makemigrations --noinput &&
-         python manage.py migrate &&
-         python manage.py collectstatic --noinput &&
-         python core/consumer.py &
-         uvicorn ride_service.asgi:application --host 0.0.0.0 --port 8000"
-    expose:
-      - "8000"
-    ports:                 # ← ADICIONE ESTAS LINHAS
+            python manage.py makemigrations easyaudit --noinput &&
+            python manage.py migrate &&
+            python manage.py collectstatic --noinput &&
+            python core/consumer.py &
+            uvicorn ride_service.asgi:application --host 0.0.0.0 --port 8000"
+    ports:
       - "8004:8000"
     environment:
       - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-user:9092
       - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092
       - ALLOWED_HOSTS=*
+      - AI_PROVIDER=ollama
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2:3b
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - media_volume:/app/media
       - static_volume:/app/staticfiles

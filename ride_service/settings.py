@@ -139,3 +139,21 @@ REST_FRAMEWORK = {
 }
 
 KAFKA_BOOTSTRAP_SERVERS_RIDE = os.environ.get('KAFKA_BOOTSTRAP_SERVERS_RIDE', 'kafka-ride:9092')
+
+# AI_PROVIDER = os.environ.get('AI_PROVIDER', 'ollama')
+# OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
+# OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3')
+
+AI_PROVIDER = os.environ.get('AI_PROVIDER', 'ollama')
+
+OLLAMA_URL = os.environ.get(
+    'OLLAMA_URL',
+    'http://ollama:11434'
+)
+
+OLLAMA_MODEL = os.environ.get(
+    'OLLAMA_MODEL',
+    'llama3.2:3b'
+)
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
