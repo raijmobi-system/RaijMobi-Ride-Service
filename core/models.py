@@ -125,6 +125,7 @@ class Vehicle(BaseModelWithSoftDelete):
     color = models.CharField(max_length=50, choices=CORES_CHOICES)
     plate = models.CharField(max_length=10)
     seats = models.IntegerField()
+    photo = models.ImageField(upload_to="vehicles/",null=True,blank=True)
 
     def clean(self):
         if self.seats <= 0:
@@ -152,6 +153,7 @@ class Ride(BaseModelWithSoftDelete):
     available_seats = models.IntegerField()
     status = models.CharField(max_length=30, choices=STATUS_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    
 
     def clean(self):
         if self.available_seats > self.vehicle.seats:

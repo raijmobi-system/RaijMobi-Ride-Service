@@ -118,6 +118,7 @@ from ..models import UserClient, Vehicle, Ride, Reservation, Rating
 from .serializers import UserClientSerializer, VehicleSerializer, RideSerializer, ReservationSerializer, RatingSerializer
 from .filters import RideFilter
 from ..ai_recommender import AIRideRecommender, AIFilterExtractor
+from rest_framework.parsers import MultiPartParser, FormParser
 
 
 class UserClientViewset(ModelViewSet):
@@ -128,6 +129,7 @@ class UserClientViewset(ModelViewSet):
 class VehicleViewset(ModelViewSet):
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
+    parser_classes = (MultiPartParser, FormParser)
 
 
 class RideViewset(ModelViewSet):
