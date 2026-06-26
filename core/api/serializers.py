@@ -30,7 +30,8 @@ class VehicleSerializer(serializers.ModelSerializer):
             'type_vehicle',
             'color',
             'plate',
-            'seats'
+            'seats',
+            'photo',
         ]
 
     def validate_user(self, value):
