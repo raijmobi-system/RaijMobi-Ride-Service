@@ -50,8 +50,10 @@ class UserTrackedModel(CreatedByMixin, UpdatedByMixin):
 # BASE MODELS
 # ==========================
 class UUIDModel(models.Model):
-    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    class Meta: abstract = True
+    # ALTERAÇÃO: agora o campo 'id' é um UUID primary key
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    class Meta:
+        abstract = True
 
 class SoftDeleteModel(models.Model):
     is_deleted = models.BooleanField(default=False)
@@ -190,9 +192,6 @@ class Reservation(BaseModelWithSoftDelete):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        if is_new:
-           reservations_total.inc()
-
         is_new = self.pk is None
         old_status = None
 
@@ -213,6 +212,7 @@ class Reservation(BaseModelWithSoftDelete):
                 raise ValidationError(f"Não existem vagas suficientes. Restam apenas {ride.available_seats}.")
             
             Ride.objects.filter(pk=ride.pk).update(available_seats=F("available_seats") - self.requested_seats)
+            reservations_total.inc()  # movido para cá para contabilizar corretamente
 
         super().save(*args, **kwargs)
         transaction.on_commit(lambda: self.send_notification(is_new, old_status))
