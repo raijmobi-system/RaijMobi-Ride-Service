@@ -190,8 +190,6 @@ class Reservation(BaseModelWithSoftDelete):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        if is_new:
-           reservations_total.inc()
 
         is_new = self.pk is None
         old_status = None
@@ -215,6 +213,10 @@ class Reservation(BaseModelWithSoftDelete):
             Ride.objects.filter(pk=ride.pk).update(available_seats=F("available_seats") - self.requested_seats)
 
         super().save(*args, **kwargs)
+
+        if is_new:
+           reservations_total.inc()
+           
         transaction.on_commit(lambda: self.send_notification(is_new, old_status))
 
     def send_notification(self, is_new, old_status):
