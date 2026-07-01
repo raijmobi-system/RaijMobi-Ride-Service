@@ -8,6 +8,8 @@ from django.utils import timezone
 
 from .models import Ride, Reservation
 
+from .metrics import (ai_requests_total,ai_requests_failed_total,ai_recommendations_total,ai_filters_total,ai_response_time_seconds)
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +65,7 @@ def get_ai_provider() -> AIProvider:
 # 2. Recomendador APENAS com IA (sem fallback)
 # -------------------------------------------------------------------
 class AIRideRecommender:
+
     def __init__(self):
         self.provider = get_ai_provider()
         self._cache = {}   # cache em memória simples (dict) com TTL
@@ -136,10 +139,19 @@ Responda **exclusivamente** com um array JSON no formato:
   {{ "index": "<índice da lista>", "reason": "breve justificativa (máx. 100 caracteres)" }}
 ]
 Sem nenhum texto adicional.
+
+
 """
+        inicio = time.time
+        ai_requests_total.inc()
 
         try:
             recommendations = self.provider.chat(prompt)
+
+            ai_response_time_seconds.observe(
+                time.time() - inicio
+            )
+
         except Exception as e:
             logger.error(f"Erro ao chamar IA ({type(self.provider).__name__}): {e}")
             return []
@@ -165,6 +177,8 @@ Sem nenhum texto adicional.
             'timestamp': now,
             'data': result[:top_n]
         }
+
+        ai_recommendations_total.inc(len(result))
         return result[:top_n]
 
 
@@ -194,8 +208,20 @@ Exemplo: para "Terminal Central para Shopping até 40" a saída deve ser:
 
 Retorne APENAS o JSON.
 """
+        
+        inicio = time.time()
+
+        ai_requests_total.inc()
+
         try:
             raw = self.provider.chat(prompt)
+
+            ai_response_time_seconds.observe(
+                time.time() - inicio
+            )
+
+            ai_filters_total.inc()
+
             logger.info(f"Resposta bruta da IA (filtro): {raw[:200]}...")
             if "```" in raw:
                 start = raw.find("{")
