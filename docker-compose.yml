@@ -57,6 +57,9 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka-ride:9092
       - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-ride:9092
       - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-user:9092
+      - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-user:9092
+      - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-user:9092
       - ALLOWED_HOSTS=*
       # AI
       - AI_PROVIDER=ollama
