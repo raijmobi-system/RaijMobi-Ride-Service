@@ -53,13 +53,10 @@ services:
     ports:
       - "8004:8000"
     environment:
-      # Kafka
-      - KAFKA_BOOTSTRAP_SERVERS=kafka-ride:9092
-      - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-ride:9092
-      - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092
-      - KAFKA_BOOTSTRAP_SERVERS=kafka-user:9092
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-ride:9092          # para outros componentes (se necessário)
+      - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092     # produtor de notificações (ride_notifications)
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-user:9092           # consumidor user-events (core/consumer.py)
       - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-user:9092
-      - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-user:9092
       - ALLOWED_HOSTS=*
       # AI
       - AI_PROVIDER=ollama
