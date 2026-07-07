@@ -5,28 +5,28 @@ import json
 import logging
 import time
 
-# Adiciona o diretório raiz do projeto ao path
+# 1. Ajusta o diretório raiz do projeto ao path primeiro
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from kafka import KafkaConsumer
 import django
+from kafka import KafkaConsumer
 
-# ⚠️ Atenção: o settings module é ride_service.settings, e não core.settings
+# 2. Configura e inicializa o Django antes de QUALQUER import de models
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ride_service.settings')
 django.setup()
 
-from core.models import UserClient   # importa o modelo local
+# 3. AGORA SIM, importa o modelo local de forma segura
+from core.models import UserClient   
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get('KAFKA_BOOTSTRAP_SERVERS', 'kafka-user:9092')
 TOPIC = 'user-events'
-GROUP_ID = 'ride-service-v3'          # grupo NOVO para forçar a leitura desde o início
+GROUP_ID = 'ride-service-v3'          
 
 logger.info("Consumer do ride-service iniciado. Tentando conectar ao Kafka...")
 
-# Tenta conectar com retry (Kafka pode demorar para subir)
 max_retries = 30
 consumer = None
 for attempt in range(1, max_retries + 1):
@@ -35,7 +35,7 @@ for attempt in range(1, max_retries + 1):
             TOPIC,
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
             group_id=GROUP_ID,
-            auto_offset_reset='earliest',          # ler mensagens antigas
+            auto_offset_reset='earliest',          
             value_deserializer=lambda v: json.loads(v.decode('utf-8')),
             key_deserializer=lambda k: k.decode('utf-8') if k else None,
         )
@@ -56,18 +56,24 @@ try:
             user_data = message.value
             user_id = user_data['id']
             name = user_data['name']
-            # O user-service envia 'is_rider' (true = passageiro)
-            is_rider = user_data.get('is_rider', False)
-            # Mapeia para o campo do modelo ride-service: is_driver
+            
+            # Ajuste preventivo: Se o user_service enviar 'is_driver', use direto.
+            # Caso envie apenas 'is_rider', mantemos a conversão, mas com cuidado.
+            is_driver = user_data.get('is_driver', None)
+            if is_driver is None:
+                is_rider = user_data.get('is_rider', False)
+                is_driver = not is_rider
+
+            # Atualiza ou cria o registro no banco local do ride_service
             obj, created = UserClient.objects.update_or_create(
                 id=user_id,
                 defaults={
                     'name': name,
-                    'is_driver': not is_rider   # passageiro → is_driver=False, motorista → True
+                    'is_driver': is_driver   
                 }
             )
             status = 'criado' if created else 'atualizado'
-            logger.info("Usuário %s (%s) %s com sucesso.", user_id, name, status)
+            logger.info("Usuário %s (%s) %s com sucesso via Kafka.", user_id, name, status)
         except Exception as e:
             logger.exception("Erro ao processar mensagem: %s", e)
 except KeyboardInterrupt:

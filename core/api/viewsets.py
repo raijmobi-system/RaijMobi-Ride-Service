@@ -1,124 +1,25 @@
-# from rest_framework.viewsets import ModelViewSet
-# from rest_framework.filters import SearchFilter, OrderingFilter
-# from django_filters.rest_framework import DjangoFilterBackend
-# from ..models import UserClient, Vehicle, Ride, Reservation, Rating
-# from .serializers import UserClientSerializer, VehicleSerializer, RideSerializer, ReservationSerializer, RatingSerializer
-# from .filters import RideFilter
-# from rest_framework.decorators import action
-# from rest_framework.response import Response
-# from ..ai_recommender import AIRideRecommender, AIFilterExtractor
-
-
-# class UserClientViewset(ModelViewSet):
-#     queryset = UserClient.objects.all()
-#     serializer_class = UserClientSerializer
-
-# class VehicleViewset(ModelViewSet):
-#     queryset = Vehicle.objects.all()
-#     serializer_class = VehicleSerializer
-
-# class RideViewset(ModelViewSet):
-#     queryset = Ride.objects.all()
-#     serializer_class = RideSerializer
-#     filterset_class = RideFilter
-#     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-#     search_fields = ["origin", "destination", "vehicle__model"]
-#     ordering_fields = ["price", "start_time", "available_seats"]
-#     ordering = ["start_time"]
-
-#     @action(detail=False, methods=['post'], url_path='ai-filter')
-#     def ai_filter(self, request):
-#         text = request.data.get('text')
-#         if not text:
-#             return Response({'error': 'Campo "text" é obrigatório'}, status=400)
-#         extractor = AIFilterExtractor()
-#         filters_dict = extractor.extract_filters(text)
-#         # ... resto do código
-
-#     @action(detail=False, methods=['get'], url_path='ai-recommendations')
-#     def ai_recommendations(self, request):
-#         user_id = request.query_params.get('user_id')
-#         if not user_id:
-#             return Response({'error': 'user_id é obrigatório'}, status=400)
-#         try:
-#             user = UserClient.objects.get(id=user_id)
-#         except UserClient.DoesNotExist:
-#             return Response({'error': 'Usuário não encontrado'}, status=404)
-
-#         top_n = int(request.query_params.get('top_n', 5))
-#         recommender = AIRideRecommender()
-#         results = recommender.recommend(user_id, top_n)
-
-#         # Serializa as caronas
-#         rides = [item['ride'] for item in results]
-#         reasons = [item['reason'] for item in results]
-#         serializer = RideSerializer(rides, many=True, context={'request': request})
-#         data = serializer.data
-#         for i, item in enumerate(data):
-#             item['ai_reason'] = reasons[i] if i < len(reasons) else ""
-#         return Response(data)
-
-#     @action(detail=False, methods=['post'], url_path='ai-filter')
-#     def ai_filter(self, request):
-#         """
-#         Recebe um texto, extrai filtros via IA e retorna as caronas filtradas.
-#         """
-#         text = request.data.get('text')
-#         if not text:
-#             return Response({'error': 'Campo "text" é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
-
-#         # Extrai filtros com IA
-#         extractor = AIFilterExtractor()
-#         filters_dict = extractor.extract_filters(text)
-
-#         if not filters_dict:
-#             return Response({'error': 'Não foi possível extrair filtros do texto'}, status=status.HTTP_400_BAD_REQUEST)
-
-#         # Aplica os filtros usando o RideFilter
-#         queryset = self.get_queryset()
-#         filterset = RideFilter(data=filters_dict, queryset=queryset, request=request)
-#         if filterset.is_valid():
-#             filtered_queryset = filterset.qs
-#             # Ordenação padrão (opcional)
-#             filtered_queryset = filtered_queryset.order_by('start_time')
-#             serializer = self.get_serializer(filtered_queryset, many=True)
-#             return Response({
-#                 'filters_applied': filters_dict,
-#                 'count': filtered_queryset.count(),
-#                 'results': serializer.data
-#             })
-#         else:
-#             return Response({
-#                 'error': 'Filtros inválidos',
-#                 'details': filterset.errors
-#             }, status=status.HTTP_400_BAD_REQUEST)
-
-# class ReservationViewset(ModelViewSet):
-#     queryset = Reservation.objects.all()
-#     serializer_class = ReservationSerializer
-
-# class RatingViewset(ModelViewSet):
-#     queryset = Rating.objects.all()
-#     serializer_class = RatingSerializer
-
-#     def perform_create(self, serializer):
-#         user = UserClient.objects.get(id=self.request.data.get("evaluator"))
-#         serializer.save(created_by=user, updated_by=user)
 
 
 from rest_framework.viewsets import ModelViewSet
+from rest_framework.views import APIView
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from django.core.cache import cache
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+
+import requests
 
 from ..models import UserClient, Vehicle, Ride, Reservation, Rating
 from .serializers import UserClientSerializer, VehicleSerializer, RideSerializer, ReservationSerializer, RatingSerializer
 from .filters import RideFilter
 from ..ai_recommender import AIRideRecommender, AIFilterExtractor
-
+from ..services.stripe_service import StripePaymentService
 
 class UserClientViewset(ModelViewSet):
     queryset = UserClient.objects.all()
@@ -128,6 +29,14 @@ class UserClientViewset(ModelViewSet):
 class VehicleViewset(ModelViewSet):
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
+    paginate_by = 10
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        return Vehicle.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class RideViewset(ModelViewSet):
@@ -138,6 +47,26 @@ class RideViewset(ModelViewSet):
     search_fields = ["origin", "destination", "vehicle__model"]
     ordering_fields = ["price", "start_time", "available_seats"]
     ordering = ["start_time"]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            print("❌ ERRO DA API (DRF):", serializer.errors)
+        return super().create(request, *args, **kwargs)
+    
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        old_status = instance.status
+        ride = serializer.save()
+
+        if old_status != 'cancelada' and ride.status == 'cancelada':
+            reservas_para_estornar = ride.reservations.filter(status='confirmada')
+            for reservation in reservas_para_estornar:
+                payment_intent_id = getattr(reservation, 'stripe_payment_intent_id', None)
+                if payment_intent_id:
+                    StripePaymentService.refund_payment(payment_intent_id)
+                reservation.status = 'cancelada'
+                reservation.save()
 
     @action(detail=False, methods=['get'], url_path='ai-recommendations')
     def ai_recommendations(self, request):
@@ -225,6 +154,48 @@ class RideViewset(ModelViewSet):
 class ReservationViewset(ModelViewSet):
     queryset = Reservation.objects.all()
     serializer_class = ReservationSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['passenger', 'ride', 'status']
+
+    # 🌟 ADICIONE ESTE MÉTODO PARA PRENDER O ERRO NO TERMINAL:
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            print("❌ ERRO DE VALIDAÇÃO NA RESERVA:", serializer.errors)
+        return super().create(request, *args, **kwargs)
+    def perform_create(self, serializer):
+        # 1. Salva a reserva atrelando ao passageiro logado
+        reservation = serializer.save(passenger=self.request.user)
+        
+        # 2. (Importante) Subtrai as vagas imediatamente ao criar a reserva
+        ride = reservation.ride
+        ride.available_seats -= reservation.requested_seats
+        ride.save()
+
+    def perform_update(self, serializer):
+        # Captura o status antigo ANTES de salvar a alteração
+        instance = self.get_object()
+        old_status = instance.status
+        
+        # Salva a atualização vinda do frontend (ex: status = 'cancelada')
+        reservation = serializer.save()
+
+        # Se a reserva NÃO estava cancelada e AGORA mudou para 'cancelada'
+        if old_status != 'cancelada' and reservation.status == 'cancelada':
+            ride = reservation.ride
+            
+            # 1. Devolve os assentos para a carona
+            ride.available_seats += reservation.requested_seats
+            ride.save()
+            print(f"♻️ {reservation.requested_seats} vaga(s) devolvida(s) para a carona #{ride.id}")
+
+            # 2. (Bônus de Segurança) Se a reserva já estava paga/confirmada, aciona o estorno no Stripe!
+            payment_intent_id = getattr(reservation, 'stripe_payment_intent_id', None)
+            if old_status == 'confirmada' and payment_intent_id:
+                StripePaymentService.refund_payment(payment_intent_id)
+                print(f"💸 Estorno solicitado no Stripe para o pagamento {payment_intent_id}")
+
+    
 
 
 class RatingViewset(ModelViewSet):
@@ -234,3 +205,68 @@ class RatingViewset(ModelViewSet):
     def perform_create(self, serializer):
         user = UserClient.objects.get(id=self.request.data.get("evaluator"))
         serializer.save(created_by=user, updated_by=user)
+
+
+# No topo do seu viewsets.py, certifique-se de importar a Reserva
+# from ..models import Reservation
+
+class CreatePaymentIntentView(APIView):
+    def post(self, request):
+        reservation_id = request.data.get('reservation_id')
+
+        if not reservation_id:
+            return Response({'error': 'reservation_id é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            reservation = Reservation.objects.get(id=reservation_id)
+            ride = reservation.ride
+            
+            # Valor total em centavos
+            total_amount = int(ride.price * reservation.requested_seats * 100)
+
+            # Chama o serviço atualizado passando o request.user inteiro
+            sheet_params = StripePaymentService.create_payment_sheet_params(
+                amount_cents=total_amount,
+                user=request.user,
+                reservation_id=str(reservation.id)
+            )
+
+            # (Opcional mas recomendado) Salva o ID da transação na reserva
+            # intent_id = sheet_params['paymentIntent'].split('_secret_')[0]
+            # reservation.stripe_payment_intent_id = intent_id
+            # reservation.save()
+
+            return Response(sheet_params, status=status.HTTP_200_OK)
+            
+        except Reservation.DoesNotExist:
+            return Response({'error': 'Reserva não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def city_suggestions(request):
+    query = request.GET.get('q', '').strip().lower()
+    if len(query) < 3:
+        return Response([])
+
+    # Cache da lista do IBGE na memória do Django por 24 horas para ser ultra-rápido
+    cities = cache.get('ibge_cities_list')
+    if not cities:
+        try:
+            resp = requests.get('https://servicodados.ibge.gov.br/api/v1/localidades/municipios', timeout=5)
+            data = resp.json()
+            cities = [{'nome': c['nome'], 'estado': c['microrregiao']['mesorregiao']['UF']['sigla']} for c in data]
+            cache.set('ibge_cities_list', cities, 86400)
+        except Exception:
+            return Response([])
+
+    # Filtra as top 3 ocorrências no backend
+    matches = [
+        c for c in cities 
+        if query in c['nome'].lower()
+    ][:3]
+
+    return Response(matches)

@@ -1,4 +1,23 @@
 services:
+
+  postgres-ride:
+    image: postgres:15
+    container_name: postgres-ride
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: raijmobi_ride_db
+      POSTGRES_USER: raijmobi_ride
+      POSTGRES_PASSWORD: raijmobi_pass
+    volumes:
+      - postgres_ride_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raijmobi_ride -d raijmobi_ride_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - raijmobi-network
+
   zookeeper-ride:
     image: confluentinc/cp-zookeeper:7.5.0
     environment:
@@ -26,20 +45,37 @@ services:
     container_name: ride-service
     command: >
       sh -c "python manage.py makemigrations --noinput &&
-            python manage.py makemigrations easyaudit --noinput &&
-            python manage.py migrate &&
-            python manage.py collectstatic --noinput &&
-            python core/consumer.py &
-            uvicorn ride_service.asgi:application --host 0.0.0.0 --port 8000"
+         python manage.py makemigrations easyaudit --noinput &&
+         python manage.py migrate &&
+         python manage.py migrate easyaudit &&
+         python manage.py collectstatic --noinput &&
+            python manage.py shell -c \"from core.models import UserClient; UserClient.objects.get_or_create(id='d861f7a3-39ee-4e20-a66a-95fd2f834e84', defaults={'name': 'Admin', 'is_driver': True})\" &&
+         python core/consumer.py &
+         uvicorn ride_service.asgi:application --host 0.0.0.0 --port 8000"
+
     ports:
       - "8004:8000"
     environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-ride:9092          # para outros componentes (se necessário)
+      - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092     # produtor de notificações (ride_notifications)
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-user:9092           # consumidor user-events (core/consumer.py)
       - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-user:9092
-      - KAFKA_BOOTSTRAP_SERVERS_RIDE=kafka-ride:9092
       - ALLOWED_HOSTS=*
+      # AI
       - AI_PROVIDER=ollama
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=llama3.2:3b
+      # PostgreSQL
+      - DB_NAME=raijmobi_ride_db
+      - DB_USER=raijmobi_ride
+      - DB_PASSWORD=raijmobi_pass
+      - DB_HOST=postgres-ride
+      - DB_PORT=5432
+    depends_on:
+      postgres-ride:
+        condition: service_healthy
+      kafka-ride:
+        condition: service_started
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -48,6 +84,29 @@ services:
     networks:
       - raijmobi-network
 
+  db-maintenance:
+    build:
+      context: ./maintenance
+      dockerfile: Dockerfile
+    container_name: postgres-ride-maintenance
+    depends_on:
+      postgres-ride:
+        condition: service_healthy
+    environment:
+      - DB_HOST=postgres-ride
+      - DB_PORT=5432
+      - DB_NAME=raijmobi_ride_db
+      - DB_USER=raijmobi_ride
+      - DB_PASSWORD=raijmobi_pass
+      - MAINTENANCE_INTERVAL_SECONDS=86400   # 24h; altere para 604800 (7 dias) se preferir
+      - TZ=America/Sao_Paulo
+      # - LOG_DIR=/app/logs                  # descomente se houver volume de logs mapeado
+      # - LOG_RETENTION_DAYS=30
+    networks:
+      - raijmobi-network
+
+
+  
 networks:
   raijmobi-network:
     external: true
@@ -55,3 +114,4 @@ networks:
 volumes:
   media_volume:
   static_volume:
+  postgres_ride_data: 

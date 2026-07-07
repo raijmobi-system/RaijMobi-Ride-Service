@@ -12,20 +12,24 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 import os
-
-
-ALLOWED_HOSTS = ['*']
-
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Carrega as variáveis do arquivo .env
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+# Credenciais do Stripe obtidas das variáveis de ambiente
+STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY')
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY')
+
+ALLOWED_HOSTS = ['*']
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-km&#tp1h6y8d@_039vtc98i2w2$7^6&(5($ijo4q_^5p5lvbne'
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    raise ValueError("A variável de ambiente SECRET_KEY não foi configurada no ficheiro .env.")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -45,6 +49,7 @@ INSTALLED_APPS = [
     'django_filters',
     'easyaudit',
     'django_prometheus',
+    'django.contrib.gis'
 ]
 
 MIDDLEWARE = [
@@ -58,7 +63,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'easyaudit.middleware.easyaudit.EasyAuditMiddleware',
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
-     "django_prometheus.middleware.PrometheusAfterMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
 
 ROOT_URLCONF = 'ride_service.urls'
@@ -90,6 +95,8 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+#SPATIALITE_LIBRARY_PATH = '/usr/lib/x86_64-linux-gnu/mod_spatialite.so'
 
 
 # Password validation
@@ -135,14 +142,16 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS':[
         'django_filters.rest_framework.DjangoFilterBackend',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'core.authentication.KongJWTAuthentication', 
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
     ]
 }
 
 KAFKA_BOOTSTRAP_SERVERS_RIDE = os.environ.get('KAFKA_BOOTSTRAP_SERVERS_RIDE', 'kafka-ride:9092')
-
-# AI_PROVIDER = os.environ.get('AI_PROVIDER', 'ollama')
-# OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
-# OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'llama3')
 
 AI_PROVIDER = os.environ.get('AI_PROVIDER', 'ollama')
 

@@ -50,8 +50,10 @@ class UserTrackedModel(CreatedByMixin, UpdatedByMixin):
 # BASE MODELS
 # ==========================
 class UUIDModel(models.Model):
-    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    class Meta: abstract = True
+    # ALTERAÇÃO: agora o campo 'id' é um UUID primary key
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    class Meta:
+        abstract = True
 
 class SoftDeleteModel(models.Model):
     is_deleted = models.BooleanField(default=False)
@@ -87,6 +89,14 @@ class UserClient(TimeStampedModel):
     @property
     def is_suspended(self):
         return self.suspension_until and self.suspension_until > timezone.now()
+    
+    @property
+    def is_authenticated(self):
+        """
+        Diz ao Django REST Framework que este objeto de usuário 
+        vindo do KongJWTAuthentication está devidamente autenticado.
+        """
+        return True
 
     def can_create_ride(self):
         active = Ride.objects.filter(
@@ -126,6 +136,8 @@ class Vehicle(BaseModelWithSoftDelete):
     plate = models.CharField(max_length=10)
     seats = models.IntegerField()
 
+    photo = models.ImageField(upload_to="vehicles/", null=True, blank=True)
+
     def clean(self):
         if self.seats <= 0:
             raise ValidationError("Veículo precisa possuir assentos.")
@@ -145,13 +157,15 @@ class Vehicle(BaseModelWithSoftDelete):
 class Ride(BaseModelWithSoftDelete):
     STATUS_CHOICES = (("pendente", "Pendente"), ("confirmada", "Confirmada"), ("em_andamento", "Em andamento"), ("cancelada", "Cancelada"), ("finalizada", "Finalizada"))
     vehicle = models.ForeignKey(Vehicle, related_name="caronas", on_delete=models.CASCADE)
-    origin = models.CharField(max_length=255)
-    destination = models.CharField(max_length=255)
+    
+    origin = models.JSONField(default=dict)
+    destination = models.JSONField(default=dict)
     start_time = models.DateTimeField()
     expected_arrival = models.DateTimeField()
     available_seats = models.IntegerField()
     status = models.CharField(max_length=30, choices=STATUS_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    
 
     def clean(self):
         if self.available_seats > self.vehicle.seats:
@@ -188,32 +202,44 @@ class Reservation(BaseModelWithSoftDelete):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
+        is_new = self.pk is None # Define primeiro
+        
         if is_new:
            reservations_total.inc()
-
-        is_new = self.pk is None
         old_status = None
 
         if not is_new:
-            reserva_antiga = Reservation.objects.get(pk=self.pk)
-            old_status = reserva_antiga.status
-            
-            if reserva_antiga.status != "cancelada" and self.status == "cancelada":
-                cancelations_total.inc()
-                if self.ride.status in ["em_andamento", "finalizada"]:
-                    raise ValidationError("Não é possível cancelar esta carona.")
-                
-                Ride.objects.filter(pk=self.ride.pk).update(available_seats=F("available_seats") + self.requested_seats)
-                self.passenger.register_cancelation()
-        else:
+            # Tenta buscar a reserva existente; se não existir, trata como novo
+            try:
+                reserva_antiga = Reservation.objects.get(pk=self.pk)
+            except Reservation.DoesNotExist:
+                is_new = True
+                reserva_antiga = None
+            else:
+                old_status = reserva_antiga.status
+                # lógica de cancelamento (se for atualização)
+                if reserva_antiga.status != "cancelada" and self.status == "cancelada":
+                    cancelations_total.inc()
+                    if self.ride.status in ["em_andamento", "finalizada"]:
+                        raise ValidationError("Não é possível cancelar esta carona.")
+                    Ride.objects.filter(pk=self.ride.pk).update(available_seats=F("available_seats") + self.requested_seats)
+                    self.passenger.register_cancelation()
+
+        if is_new:
+            # Criação
             ride = Ride.objects.select_for_update().get(pk=self.ride.pk)
             if ride.available_seats < self.requested_seats:
                 raise ValidationError(f"Não existem vagas suficientes. Restam apenas {ride.available_seats}.")
-            
             Ride.objects.filter(pk=ride.pk).update(available_seats=F("available_seats") - self.requested_seats)
+            reservations_total.inc()
 
         super().save(*args, **kwargs)
+
+        if is_new:
+           reservations_total.inc()
+           
         transaction.on_commit(lambda: self.send_notification(is_new, old_status))
+
 
     def send_notification(self, is_new, old_status):
         motorista = self.ride.vehicle.user
