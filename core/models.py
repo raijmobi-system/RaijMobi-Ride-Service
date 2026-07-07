@@ -54,6 +54,10 @@ class UUIDModel(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     class Meta:
         abstract = True
+    # ALTERAÇÃO: agora o campo 'id' é um UUID primary key
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    class Meta:
+        abstract = True
 
 class SoftDeleteModel(models.Model):
     is_deleted = models.BooleanField(default=False)
@@ -166,6 +170,7 @@ class Ride(BaseModelWithSoftDelete):
     status = models.CharField(max_length=30, choices=STATUS_CHOICES)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     
+    
 
     def clean(self):
         if self.available_seats > self.vehicle.seats:
@@ -232,13 +237,19 @@ class Reservation(BaseModelWithSoftDelete):
                 raise ValidationError(f"Não existem vagas suficientes. Restam apenas {ride.available_seats}.")
             Ride.objects.filter(pk=ride.pk).update(available_seats=F("available_seats") - self.requested_seats)
             reservations_total.inc()
+            reservations_total.inc()
 
         super().save(*args, **kwargs)
 
         if is_new:
            reservations_total.inc()
            
+
+        if is_new:
+           reservations_total.inc()
+           
         transaction.on_commit(lambda: self.send_notification(is_new, old_status))
+
 
 
     def send_notification(self, is_new, old_status):
