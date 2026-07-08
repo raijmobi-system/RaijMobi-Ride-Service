@@ -22,13 +22,13 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build and start all services
-        run: docker-compose up -d --build
+        # Comando moderno: docker compose (sem hífen)
+        run: docker compose up -d --build
         env:
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-        # As demais variáveis (DB, KAFKA) já estão definidas no compose, 
-        # mas se precisar sobrescrever, faça aqui.
+          # Usa as secrets se existirem, senão usa valores dummy para não quebrar
+          SECRET_KEY: ${{ secrets.SECRET_KEY || 'django-insecure-xyz789' }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY || 'pk_test_dummy' }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || 'sk_test_dummy' }}
 
       - name: Wait for app to be ready
         run: |
@@ -40,22 +40,23 @@ jobs:
             fi
             if [ $i -eq 30 ]; then
               echo "Container não iniciou após 30 segundos."
-              docker-compose logs ride-app
+              docker compose logs ride-app
               exit 1
             fi
             sleep 2
           done
 
       - name: Run Django check inside container
-        run: |
-          docker exec ride-service python manage.py check
-        # Este comando verifica se o projeto Django está configurado corretamente.
-        # Se houver erro de importação ou configuração, o comando falha.
+        run: docker exec ride-service python manage.py check
 
       - name: Show logs if failure
         if: failure()
-        run: docker-compose logs ride-app
+        run: docker compose logs ride-app
 
       - name: Stop containers (always)
         if: always()
-        run: docker-compose down -v
+        run: docker compose down -v
+
+
+
+        
