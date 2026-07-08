@@ -15,43 +15,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Create external network
-        run: docker network create raijmobi-network || true
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and start all services
-        run: docker compose up -d --build
-        env:
-          SECRET_KEY: ${{ secrets.SECRET_KEY || 'django-insecure-xyz789' }}
-          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY || 'pk_test_dummy' }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || 'sk_test_dummy' }}
+      - name: Build image
+        run: docker build -t ride-app .
 
-      - name: Wait for app to be ready
+      - name: Run Django check
         run: |
-          echo "Aguardando o container ride-service iniciar..."
-          for i in {1..30}; do
-            if docker ps --filter "name=ride-service" --filter "status=running" | grep -q ride-service; then
-              echo "Container está rodando."
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "Container não iniciou após 30 segundos."
-              docker compose logs ride-app
-              exit 1
-            fi
-            sleep 2
-          done
-
-      - name: Run Django check inside container
-        run: |
-          docker exec -e SECRET_KEY="${{ secrets.SECRET_KEY || 'django-insecure-xyz789' }}" ride-service python manage.py check
-
-      - name: Show logs if failure
-        if: failure()
-        run: docker compose logs ride-app
-
-      - name: Stop containers (always)
-        if: always()
-        run: docker compose down -v
+          docker run --rm \
+            -e SECRET_KEY="${{ secrets.SECRET_KEY || 'django-insecure-xyz789' }}" \
+            -e STRIPE_PUBLISHABLE_KEY="${{ secrets.STRIPE_PUBLISHABLE_KEY || 'pk_test_dummy' }}" \
+            -e STRIPE_SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY || 'sk_test_dummy' }}" \
+            -e DB_NAME=raijmobi_ride_db \
+            -e DB_USER=raijmobi_ride \
+            -e DB_PASSWORD=raijmobi_pass \
+            -e DB_HOST=postgres-ride \
+            -e DB_PORT=5432 \
+            ride-app python manage.py check
