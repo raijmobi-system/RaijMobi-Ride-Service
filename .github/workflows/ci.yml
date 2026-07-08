@@ -9,23 +9,21 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    environment: ci-ride   # ambiente configurado com as secrets
+    environment: ci-ride
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Create external network
-        run: docker network create raijmobi-network || true   # se já existir, ignora erro
+        run: docker network create raijmobi-network || true
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and start all services
-        # Comando moderno: docker compose (sem hífen)
         run: docker compose up -d --build
         env:
-          # Usa as secrets se existirem, senão usa valores dummy para não quebrar
           SECRET_KEY: ${{ secrets.SECRET_KEY || 'django-insecure-xyz789' }}
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY || 'pk_test_dummy' }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY || 'sk_test_dummy' }}
@@ -47,7 +45,8 @@ jobs:
           done
 
       - name: Run Django check inside container
-        run: docker exec ride-service python manage.py check
+        run: |
+          docker exec -e SECRET_KEY="${{ secrets.SECRET_KEY || 'django-insecure-xyz789' }}" ride-service python manage.py check
 
       - name: Show logs if failure
         if: failure()
@@ -56,7 +55,3 @@ jobs:
       - name: Stop containers (always)
         if: always()
         run: docker compose down -v
-
-
-
-        
