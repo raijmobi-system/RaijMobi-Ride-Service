@@ -41,6 +41,8 @@ services:
       - raijmobi-network
 
   ride-app:
+    env_file:
+      - .env
     build: .
     container_name: ride-service
     command: >
