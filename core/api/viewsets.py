@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status,permissions
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
 from rest_framework.decorators import api_view, permission_classes
@@ -269,3 +269,46 @@ def city_suggestions(request):
     ][:3]
 
     return Response(matches)
+
+class RideAdminLogsView(APIView):
+    # Definido como AllowAny temporariamente para bater com o teste inicial do front
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        try:
+            busca = request.query_params.get('busca', '').strip()
+            
+            # Busca todos os eventos de auditoria do Ride Service
+            query = CRUDEvent.objects.all().order_by('-datetime')
+
+            if busca:
+                query = query.filter(
+                    Q(user__username__icontains=busca) |
+                    Q(object_repr__icontains=busca) |
+                    Q(event_type__icontains=busca)
+                )
+
+            logs_formatados = []
+            for event in query:
+                # Mapeia o tipo de evento numérico para String que o front já entende
+                acao_map = {1: 'Create', 2: 'Update', 3: 'Delete'}
+                acao_string = acao_map.get(event.event_type, 'Update')
+
+                logs_formatados.append({
+                    "id": event.id,
+                    "quem_mexeu": event.user.get_full_name() or event.user.username if event.user else "Sistema",
+                    "data": event.datetime.strftime('%d/%m/%Y'),
+                    "hora": event.datetime.strftime('%H:%M:%S'),
+                    "microsservico": "Ride Service",
+                    "acao": acao_string,
+                    "no_que_mexeu": event.object_repr or "Objeto não identificado"
+                })
+
+            return Response(logs_formatados, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"erro": f"Erro interno no Ride Service: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

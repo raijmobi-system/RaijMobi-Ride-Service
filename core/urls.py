@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .api.viewsets import ReservationViewset, RideViewset, VehicleViewset, RatingViewset,UserClientViewset,CreatePaymentIntentView
+from .api.viewsets import ReservationViewset, RideViewset, VehicleViewset, RatingViewset,UserClientViewset,CreatePaymentIntentView,RideAdminLogsView
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -14,6 +14,7 @@ router.register(r'ratings', RatingViewset, basename='rating')
 router.register(r'users', UserClientViewset, basename='users')
 
 urlpatterns = [
+    path('admin-logs/', RideAdminLogsView.as_view(), name='ride-admin-logs'),
     path('', include(router.urls)),
     path('payment/create-sheet/', CreatePaymentIntentView.as_view(), name='payment-create-sheet'),
 ]
