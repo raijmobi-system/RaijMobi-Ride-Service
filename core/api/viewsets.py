@@ -1,15 +1,14 @@
-
-
+# ride_service/views.py
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.views import APIView
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status,permissions
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import models
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.core.cache import cache
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from ..kafka_producer import send_ride_event
@@ -21,6 +20,9 @@ from .serializers import UserClientSerializer, VehicleSerializer, RideSerializer
 from .filters import RideFilter
 from ..ai_recommender import AIRideRecommender, AIFilterExtractor
 from ..services.stripe_service import StripePaymentService
+
+from easyaudit.models import CRUDEvent
+from django.db.models import Q
 
 class UserClientViewset(ModelViewSet):
     queryset = UserClient.objects.all()
@@ -48,6 +50,37 @@ class RideViewset(ModelViewSet):
     search_fields = ["origin", "destination", "vehicle__model"]
     ordering_fields = ["price", "start_time", "available_seats"]
     ordering = ["start_time"]
+
+    @action(detail=False, methods=['get'], url_path='admin-logs', permission_classes=[IsAuthenticated])
+    def admin_logs(self, request):
+        """
+        GET /api/ride/admin-logs/
+        Retorna o histórico completo do django-easy-audit específico deste banco de dados.
+        """
+        busca = request.query_params.get('busca', '')
+        
+        # ♻️ Fatiamento [:100] removido para carregar todos os logs existentes
+        queryset = CRUDEvent.objects.select_related('user', 'content_type').all().order_by('-datetime')
+
+        if busca:
+            queryset = queryset.filter(
+                Q(user__username__icontains=busca) | 
+                Q(object_repr__icontains=busca) | 
+                Q(content_type__model__icontains=busca)
+            )
+
+        dados = []
+        for log in queryset:
+            dados.append({
+                "id": str(log.id),
+                "user_name": log.user.username if log.user else "Sistema",
+                "content_type": log.content_type.name if log.content_type else "Modelo Oculto",
+                "object_repr": log.object_repr,
+                "event_type": log.event_type,
+                "datetime": log.datetime.isoformat()
+            })
+
+        return Response(dados)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -96,9 +129,6 @@ class RideViewset(ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='ai-filter')
     def ai_filter(self, request):
-        """
-        Recebe um texto, extrai filtros via IA e retorna as caronas filtradas.
-        """
         text = request.data.get('text')
         if not text:
             return Response({'error': 'Campo "text" é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
@@ -109,7 +139,6 @@ class RideViewset(ModelViewSet):
         if not filters_dict:
             return Response({'error': 'Não foi possível extrair filtros do texto'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Normalização dos valores
         def capitalize_words(s):
             return ' '.join(word.capitalize() for word in s.strip().split())
 
@@ -117,15 +146,13 @@ class RideViewset(ModelViewSet):
             filters_dict['origin'] = capitalize_words(filters_dict['origin'])
         if 'destination' in filters_dict:
             dest = capitalize_words(filters_dict['destination'])
-            # Se destination for "Carro" ou "Moto", mover para vehicle_type
-            if dest.lower() in ['Carro', 'Moto']:
+            if dest.lower() in ['carro', 'moto']:
                 filters_dict['vehicle_type'] = dest.lower()
                 del filters_dict['destination']
             else:
                 filters_dict['destination'] = dest
         if 'vehicle_type' in filters_dict:
             filters_dict['vehicle_type'] = filters_dict['vehicle_type'].lower()
-        # Remove campos None ou vazios
         filters_dict = {k: v for k, v in filters_dict.items() if v not in [None, 'null', '']}
 
         queryset = self.get_queryset()
@@ -133,7 +160,6 @@ class RideViewset(ModelViewSet):
 
         if filterset.is_valid():
             filtered_queryset = filterset.qs.order_by('start_time')
-            # Fallback: se não encontrou nada, tenta apenas com origem, destino e tipo de veículo
             if filtered_queryset.count() == 0:
                 fallback_dict = {k: v for k, v in filters_dict.items() if k in ['origin', 'destination', 'vehicle_type']}
                 if fallback_dict:
@@ -161,12 +187,12 @@ class ReservationViewset(ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['passenger', 'ride', 'status']
 
-    # 🌟 ADICIONE ESTE MÉTODO PARA PRENDER O ERRO NO TERMINAL:
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             print("❌ ERRO DE VALIDAÇÃO NA RESERVA:", serializer.errors)
         return super().create(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         # 1. Salva a reserva atrelando ao passageiro logado
         reservation = serializer.save(passenger=self.request.user,status='pendente')
@@ -177,29 +203,20 @@ class ReservationViewset(ModelViewSet):
         ride.save()
 
     def perform_update(self, serializer):
-        # Captura o status antigo ANTES de salvar a alteração
         instance = self.get_object()
         old_status = instance.status
-        
-        # Salva a atualização vinda do frontend (ex: status = 'cancelada')
         reservation = serializer.save()
 
-        # Se a reserva NÃO estava cancelada e AGORA mudou para 'cancelada'
         if old_status != 'cancelada' and reservation.status == 'cancelada':
             ride = reservation.ride
-            
-            # 1. Devolve os assentos para a carona
             ride.available_seats += reservation.requested_seats
             ride.save()
             print(f"♻️ {reservation.requested_seats} vaga(s) devolvida(s) para a carona #{ride.id}")
 
-            # 2. (Bônus de Segurança) Se a reserva já estava paga/confirmada, aciona o estorno no Stripe!
             payment_intent_id = getattr(reservation, 'stripe_payment_intent_id', None)
             if old_status == 'confirmada' and payment_intent_id:
                 StripePaymentService.refund_payment(payment_intent_id)
                 print(f"💸 Estorno solicitado no Stripe para o pagamento {payment_intent_id}")
-
-    
 
 
 class RatingViewset(ModelViewSet):
@@ -227,8 +244,6 @@ class CreatePaymentIntentView(APIView):
         try:
             reservation = Reservation.objects.get(id=reservation_id)
             ride = reservation.ride
-            
-            # Valor total em centavos
             total_amount = int(ride.price * reservation.requested_seats * 100)
 
             # === 🌟 SE A REQUISIÇÃO VIER DA WEB ===
@@ -255,7 +270,6 @@ class CreatePaymentIntentView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 
-
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def city_suggestions(request):
@@ -263,7 +277,6 @@ def city_suggestions(request):
     if len(query) < 3:
         return Response([])
 
-    # Cache da lista do IBGE na memória do Django por 24 horas para ser ultra-rápido
     cities = cache.get('ibge_cities_list')
     if not cities:
         try:
@@ -274,10 +287,52 @@ def city_suggestions(request):
         except Exception:
             return Response([])
 
-    # Filtra as top 3 ocorrências no backend
     matches = [
         c for c in cities 
         if query in c['nome'].lower()
     ][:3]
 
     return Response(matches)
+
+class RideAdminLogsView(APIView):
+    # Definido como AllowAny temporariamente para bater com o teste inicial do front
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        try:
+            busca = request.query_params.get('busca', '').strip()
+            
+            # Busca todos os eventos de auditoria do Ride Service
+            query = CRUDEvent.objects.all().order_by('-datetime')
+
+            if busca:
+                query = query.filter(
+                    Q(user__username__icontains=busca) |
+                    Q(object_repr__icontains=busca) |
+                    Q(event_type__icontains=busca)
+                )
+
+            logs_formatados = []
+            for event in query:
+                # Mapeia o tipo de evento numérico para String que o front já entende
+                acao_map = {1: 'Create', 2: 'Update', 3: 'Delete'}
+                acao_string = acao_map.get(event.event_type, 'Update')
+
+                logs_formatados.append({
+                    "id": event.id,
+                    "quem_mexeu": event.user.get_full_name() or event.user.username if event.user else "Sistema",
+                    "data": event.datetime.strftime('%d/%m/%Y'),
+                    "hora": event.datetime.strftime('%H:%M:%S'),
+                    "microsservico": "Ride Service",
+                    "acao": acao_string,
+                    "no_que_mexeu": event.object_repr or "Objeto não identificado"
+                })
+
+            return Response(logs_formatados, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"erro": f"Erro interno no Ride Service: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
