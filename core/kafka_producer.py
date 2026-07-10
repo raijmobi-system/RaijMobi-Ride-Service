@@ -14,7 +14,7 @@ producer = KafkaProducer(
 def send_ride_event(ride):
     """Envia evento de carona confirmada para o chat_service."""
     message = {
-        'ride_id': str(ride.uuid),          # UUID da carona
+        'ride_id': str(ride.id),          
         'driver_id': str(ride.vehicle.user.id),
         'origin': ride.origin,
         'destination': ride.destination,
@@ -24,9 +24,9 @@ def send_ride_event(ride):
         # passageiros iniciais (vazio – serão adicionados depois)
         'passengers': [],
     }
-    future = producer.send('ride-events', key=str(ride.uuid), value=message)
+    future = producer.send('ride-events', key=str(ride.id), value=message)
     try:
         future.get(timeout=10)
-        logger.info(f"Evento enviado para carona {ride.uuid}")
+        logger.info(f"Evento enviado para carona {ride.id}")
     except Exception as e:
         logger.error(f"Falha ao enviar evento: {e}")

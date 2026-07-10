@@ -9,9 +9,6 @@ class StripePaymentService:
         """
         Gera os parâmetros necessários para o Stripe Payment Sheet (Capacitor/Nativo).
         """
-        # 1. Cria ou recupera o cliente no Stripe. 
-        # DICA: O ideal no futuro é salvar o 'stripe_customer_id' no seu model UserClient 
-        # para não precisar criar um novo toda vez. Por hora, faremos a busca por e-mail ou criação:
         customers = stripe.Customer.list(email=user.email).data if hasattr(user, 'email') else []
         
         if customers:
@@ -23,19 +20,15 @@ class StripePaymentService:
                 metadata={'user_id': str(user.id)}
             )
 
-        # 2. Cria a chave efêmera de segurança (obrigatória para o PaymentSheet)
         ephemeral_key = stripe.EphemeralKey.create(
             customer=customer.id,
-            stripe_version='2023-10-16', # Use uma versão recente da API
+            stripe_version='2023-10-16',
         )
 
-        # 3. Cria o PaymentIntent atrelado ao cliente e habilitando PIX e Cartão
         payment_intent = stripe.PaymentIntent.create(
             amount=amount_cents,
             currency='brl',
             customer=customer.id,
-            # 'automatic_payment_methods' é altamente recomendado no Payment Sheet.
-            # Ele lê do seu painel do Stripe e exibe Cartão, Apple Pay, Google Pay e PIX automaticamente!
             automatic_payment_methods={'enabled': True}, 
             metadata={
                 'user_id': str(user.id),
@@ -47,8 +40,34 @@ class StripePaymentService:
             'paymentIntent': payment_intent.client_secret,
             'ephemeralKey': ephemeral_key.secret,
             'customer': customer.id,
-            'publishableKey': settings.STRIPE_PUBLISHABLE_KEY # Opcional enviar daqui, mas facilita no front
+            'publishableKey': settings.STRIPE_PUBLISHABLE_KEY
         }
+
+    # 🌟 ATUALIZADO: Configurado estritamente para Cartão de Crédito na Web
+    @staticmethod
+    def create_checkout_session(amount_cents: int, ride: object, reservation_id: str):
+        """
+        Gera uma sessão de checkout hospedada no site do Stripe para navegadores.
+        """
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'], # 🌟 Removido o 'pix' para testar direto no localhost sem erros!
+            line_items=[{
+                'price_data': {
+                    'currency': 'brl',
+                    'product_data': {
+                        'name': f"Carona Solidária - Viagem #{str(ride.id)[:8]}",
+                        'description': f"De {ride.origin} para {ride.destination}",
+                    },
+                    'unit_amount': amount_cents,
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url=f"http://localhost:3000/runs?payment=success&res={reservation_id}",
+            cancel_url=f"http://localhost:3000/runs?payment=cancel",
+            metadata={'reservation_id': str(reservation_id)}
+        )
+        return checkout_session.url
 
     @staticmethod
     def refund_payment(payment_intent_id: str):

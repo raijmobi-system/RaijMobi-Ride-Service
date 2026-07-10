@@ -10,7 +10,7 @@ class UserClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserClient
         fields = [
-            'id',
+            'id', # Agora é um UUID nativamente
             'name',
             'is_driver',
             'average_rating',
@@ -21,10 +21,10 @@ class UserClientSerializer(serializers.ModelSerializer):
 
 
 class VehicleSerializer(serializers.ModelSerializer):
-    # Mudamos para read_only=True para o DRF não exigir isso no POST
     class Meta:
         model = Vehicle
-        fields = ['id', 'uuid', 'user', 'model', 'type_vehicle', 'color', 'plate', 'seats','photo']
+        # Removemos o 'uuid' daqui. O 'id' já é o UUID do veículo.
+        fields = ['id', 'user', 'model', 'type_vehicle', 'color', 'plate', 'seats', 'photo']
         read_only_fields = ['user']
 
     def validate_user(self, value):
@@ -53,20 +53,14 @@ class VehicleSerializer(serializers.ModelSerializer):
 
 
 class RideSerializer(serializers.ModelSerializer):
-    # 🌟 AQUI ESTÁ A SOLUÇÃO DEFINITIVA:
-    # Dizemos ao Django: "Quando o frontend enviar o campo 'vehicle', não procure por ID numérico.
-    # Procure na coluna 'uuid' da tabela de Veículos!"
-    vehicle = serializers.SlugRelatedField(
-        slug_field='uuid',
-        queryset=Vehicle.objects.all()
-    )
+    # 🌟 SlugRelatedField FOI REMOVIDO! 
+    # O DRF agora sabe que 'vehicle' recebe um UUID automaticamente porque o modelo exige isso.
 
     class Meta:
         model = Ride
         fields = [
-            'id',               # Pode manter o ID aqui, ele serve para o front ler (read-only) se quiser.
-            'uuid',             # UUID da própria carona
-            'vehicle',          # Agora aceita e valida pelo UUID do veículo!
+            'id',               # O ID agora é o UUID da própria carona
+            'vehicle',          # Espera e valida o UUID do veículo nativamente
             'origin',
             'destination',
             'start_time',
@@ -78,7 +72,6 @@ class RideSerializer(serializers.ModelSerializer):
         read_only_fields = ['status']
 
     def validate_vehicle(self, value):
-        # Como usamos o SlugRelatedField acima, o 'value' aqui já chega como o OBJETO Vehicle correto!
         if not UserClient.objects.filter(id=value.user.id).exists():
             raise serializers.ValidationError("Usuário do veículo não existe.")
         if not value.user.is_driver:
@@ -102,30 +95,25 @@ class RideSerializer(serializers.ModelSerializer):
                 "available_seats": f"O veículo possui apenas {vehicle.seats} assentos."
             })
 
-        # Verifica se a previsão de chegada é após a partida
         if expected_arrival and expected_arrival <= start_time:
             raise serializers.ValidationError({
                 "expected_arrival": "A previsão de chegada deve ser após a saída."
             })
 
-        # Atualização automática do status se a partida já tiver ocorrido
         if start_time and timezone.now() >= start_time:
             data['status'] = 'em_andamento'
         else:
             data['status'] = 'pendente'
 
-        # 🌟 CORREÇÃO: Busca por sobreposição exata de horários!
-        # Só bloqueia se o motorista tiver uma carona ativa (pendente, confirmada ou em andamento)
-        # que cruze exatamente com a janela [start_time -> expected_arrival] solicitada.
         conflitos_de_horario = Ride.objects.filter(
             vehicle__user=user,
             status__in=['pendente', 'confirmada', 'em_andamento'],
-            start_time__lt=expected_arrival,     # Saída existente começa ANTES da nova chegar
-            expected_arrival__gt=start_time      # Chegada existente termina DEPOIS da nova sair
+            start_time__lt=expected_arrival,     
+            expected_arrival__gt=start_time      
         )
 
-        # Se for um PATCH/PUT (atualização), ignora a própria carona na verificação
         if self.instance:
+            # self.instance.pk continua funcionando perfeitamente (o pk aponta pro UUID agora)
             conflitos_de_horario = conflitos_de_horario.exclude(pk=self.instance.pk)
 
         if conflitos_de_horario.exists():
@@ -139,18 +127,13 @@ class RideSerializer(serializers.ModelSerializer):
 
         return data
 
+
 class ReservationSerializer(serializers.ModelSerializer):
-    # 🌟 ADICIONE ESTA LINHA PARA TRATAR O UUID DA CARONA:
-    ride = serializers.SlugRelatedField(
-        slug_field='uuid',
-        queryset=Ride.objects.all()
-    )
 
     class Meta:
         model = Reservation
         fields = ['id', 'ride', 'passenger', 'requested_seats', 'status']
-        # 👇 ADICIONE ESTA LINHA:
-        read_only_fields = ['id', 'passenger', 'status']
+        read_only_fields = ['id', 'passenger']
 
     def validate_passenger(self, value):
         if not UserClient.objects.filter(id=value.id).exists():
@@ -172,7 +155,6 @@ class ReservationSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        # Só verifica vagas na criação (POST)
         if self.instance is None:
             ride = data.get('ride')
             requested_seats = data.get('requested_seats', 1)
@@ -181,9 +163,9 @@ class ReservationSerializer(serializers.ModelSerializer):
                     "requested_seats": f"A carona possui apenas {ride.available_seats} vagas disponíveis."
                 })
         return data
+
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        # Substitui a string do UUID pelo JSON completo do RideSerializer
         ret['ride'] = RideSerializer(instance.ride, context=self.context).data
         return ret
 

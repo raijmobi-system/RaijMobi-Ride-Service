@@ -12,6 +12,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from django.core.cache import cache
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from ..kafka_producer import send_ride_event
 
 import requests
 
@@ -54,6 +55,10 @@ class RideViewset(ModelViewSet):
             print("❌ ERRO DA API (DRF):", serializer.errors)
         return super().create(request, *args, **kwargs)
     
+    def perform_create(self, serializer):
+        ride = serializer.save()
+        send_ride_event(ride)
+    
     def perform_update(self, serializer):
         instance = self.get_object()
         old_status = instance.status
@@ -70,17 +75,16 @@ class RideViewset(ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='ai-recommendations')
     def ai_recommendations(self, request):
-        user_id = request.query_params.get('user_id')
-        if not user_id:
-            return Response({'error': 'user_id é obrigatório'}, status=400)
-        try:
-            user = UserClient.objects.get(id=user_id)
-        except UserClient.DoesNotExist:
-            return Response({'error': 'Usuário não encontrado'}, status=404)
+        # Pega diretamente do usuário logado na requisição (evita depender de query params)
+        user = request.user
+        if not user or not user.is_authenticated:
+            return Response({'error': 'Usuário não autenticado'}, status=401)
 
         top_n = int(request.query_params.get('top_n', 5))
         recommender = AIRideRecommender()
-        results = recommender.recommend(user_id, top_n)
+        
+        
+        results = recommender.recommend(user.id, top_n)
 
         rides = [item['ride'] for item in results]
         reasons = [item['reason'] for item in results]
@@ -165,7 +169,7 @@ class ReservationViewset(ModelViewSet):
         return super().create(request, *args, **kwargs)
     def perform_create(self, serializer):
         # 1. Salva a reserva atrelando ao passageiro logado
-        reservation = serializer.save(passenger=self.request.user)
+        reservation = serializer.save(passenger=self.request.user,status='pendente')
         
         # 2. (Importante) Subtrai as vagas imediatamente ao criar a reserva
         ride = reservation.ride
@@ -210,9 +214,12 @@ class RatingViewset(ModelViewSet):
 # No topo do seu viewsets.py, certifique-se de importar a Reserva
 # from ..models import Reservation
 
+# Dentro do seu viewsets.py:
+
 class CreatePaymentIntentView(APIView):
     def post(self, request):
         reservation_id = request.data.get('reservation_id')
+        platform = request.data.get('platform', 'mobile') # 🌟 Captura se é 'web' ou 'mobile'
 
         if not reservation_id:
             return Response({'error': 'reservation_id é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
@@ -224,17 +231,21 @@ class CreatePaymentIntentView(APIView):
             # Valor total em centavos
             total_amount = int(ride.price * reservation.requested_seats * 100)
 
-            # Chama o serviço atualizado passando o request.user inteiro
+            # === 🌟 SE A REQUISIÇÃO VIER DA WEB ===
+            if platform == 'web':
+                checkout_url = StripePaymentService.create_checkout_session(
+                    amount_cents=total_amount,
+                    ride=ride,
+                    reservation_id=str(reservation.id)
+                )
+                return Response({'checkout_url': checkout_url}, status=status.HTTP_200_OK)
+
+            # === SE VIER DO APP MOBILE NATIVO ===
             sheet_params = StripePaymentService.create_payment_sheet_params(
                 amount_cents=total_amount,
                 user=request.user,
                 reservation_id=str(reservation.id)
             )
-
-            # (Opcional mas recomendado) Salva o ID da transação na reserva
-            # intent_id = sheet_params['paymentIntent'].split('_secret_')[0]
-            # reservation.stripe_payment_intent_id = intent_id
-            # reservation.save()
 
             return Response(sheet_params, status=status.HTTP_200_OK)
             

@@ -54,10 +54,6 @@ class UUIDModel(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     class Meta:
         abstract = True
-    # ALTERAÇÃO: agora o campo 'id' é um UUID primary key
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    class Meta:
-        abstract = True
 
 class SoftDeleteModel(models.Model):
     is_deleted = models.BooleanField(default=False)
@@ -87,8 +83,8 @@ class UserClient(TimeStampedModel):
     average_rating_update_at = models.DateTimeField(null=True, blank=True)
     warning_count = models.PositiveIntegerField(default=0)
     suspension_until = models.DateTimeField(null=True, blank=True)
-    MAX_ACTIVE_RIDES = 3
-    MAX_ACTIVE_RESERVATIONS = 3
+    MAX_ACTIVE_RIDES = 20
+    MAX_ACTIVE_RESERVATIONS = 20
 
     @property
     def is_suspended(self):
