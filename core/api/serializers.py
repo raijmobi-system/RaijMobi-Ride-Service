@@ -10,7 +10,7 @@ class UserClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserClient
         fields = [
-            'id', # Agora é um UUID nativamente
+            'id',  # Agora é um UUID nativamente
             'name',
             'is_driver',
             'average_rating',
@@ -53,6 +53,10 @@ class VehicleSerializer(serializers.ModelSerializer):
 
 
 class RideSerializer(serializers.ModelSerializer):
+    # 🌟 CORREÇÃO: required=False resolve o erro do formulário de criação
+    # e o default='pendente' define o valor inicial correto.
+    status = serializers.CharField(default='pendente', required=False)
+
     class Meta:
         model = Ride
         fields = [
@@ -60,8 +64,7 @@ class RideSerializer(serializers.ModelSerializer):
             'start_time', 'expected_arrival', 'available_seats',
             'status', 'price'
         ]
-        # 🌟 CORREÇÃO 1: Removemos 'status' de read_only_fields para aceitar PATCH/PUT
-        read_only_fields = []  # Antes era: ['status']
+        read_only_fields = []
 
     def validate_vehicle(self, value):
         if not UserClient.objects.filter(id=value.user.id).exists():
@@ -78,18 +81,15 @@ class RideSerializer(serializers.ModelSerializer):
         start_time = data.get('start_time', getattr(self.instance, 'start_time', None))
         expected_arrival = data.get('expected_arrival', getattr(self.instance, 'expected_arrival', None))
 
-        # 🌟 CORREÇÃO 2: Só aplica regras iniciais de criação se self.instance for None!
+        # Validações aplicadas apenas na CRIAÇÃO (quando self.instance é None)
         if self.instance is None:
-            if not user.can_create_ride():
+            if user and not user.can_create_ride():
                 raise serializers.ValidationError(
                     "Limite de caronas ativas atingido para este motorista."
                 )
-
-            # Define o status automático APENAS ao criar uma carona nova
-            if start_time and timezone.now() >= start_time:
-                data['status'] = 'em_andamento'
-            else:
-                data['status'] = 'pendente'
+            
+            # Garante que mesmo que tentem injetar outro status no POST, começará pendente
+            data['status'] = 'pendente'
         else:
             # Se for atualização (PATCH/PUT), valida se o status enviado é legítimo
             if 'status' in data:
@@ -98,7 +98,7 @@ class RideSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"status": "Status de viagem inválido."})
 
         # Validações gerais que valem tanto para criação quanto edição
-        if available_seats > vehicle.seats:
+        if vehicle and available_seats > vehicle.seats:
             raise serializers.ValidationError({
                 "available_seats": f"O veículo possui apenas {vehicle.seats} assentos."
             })
@@ -129,7 +129,9 @@ class RideSerializer(serializers.ModelSerializer):
 
         return data
     
+
 class ReservationSerializer(serializers.ModelSerializer):
+    requested_seats = serializers.IntegerField(default=1)
 
     class Meta:
         model = Reservation
