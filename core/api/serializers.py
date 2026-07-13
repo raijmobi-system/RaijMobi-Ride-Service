@@ -10,7 +10,7 @@ class UserClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserClient
         fields = [
-            'id', # Agora é um UUID nativamente
+            'id',  # Agora é um UUID nativamente
             'name',
             'is_driver',
             'average_rating',
@@ -53,23 +53,18 @@ class VehicleSerializer(serializers.ModelSerializer):
 
 
 class RideSerializer(serializers.ModelSerializer):
-    # 🌟 SlugRelatedField FOI REMOVIDO! 
-    # O DRF agora sabe que 'vehicle' recebe um UUID automaticamente porque o modelo exige isso.
+    # 🌟 CORREÇÃO: required=False resolve o erro do formulário de criação
+    # e o default='pendente' define o valor inicial correto.
+    status = serializers.CharField(default='pendente', required=False)
 
     class Meta:
         model = Ride
         fields = [
-            'id',               # O ID agora é o UUID da própria carona
-            'vehicle',          # Espera e valida o UUID do veículo nativamente
-            'origin',
-            'destination',
-            'start_time',
-            'expected_arrival',
-            'available_seats',
-            'status',
-            'price'
+            'id', 'vehicle', 'origin', 'destination',
+            'start_time', 'expected_arrival', 'available_seats',
+            'status', 'price'
         ]
-        read_only_fields = ['status']
+        read_only_fields = []
 
     def validate_vehicle(self, value):
         if not UserClient.objects.filter(id=value.user.id).exists():
@@ -79,31 +74,39 @@ class RideSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        vehicle = data['vehicle']
-        user = vehicle.user
-        available_seats = data['available_seats']
-        start_time = data.get('start_time')
-        expected_arrival = data.get('expected_arrival')
+        # Usamos getattr para resgatar valores da instância caso não venham no PATCH
+        vehicle = data.get('vehicle', getattr(self.instance, 'vehicle', None))
+        user = vehicle.user if vehicle else None
+        available_seats = data.get('available_seats', getattr(self.instance, 'available_seats', 0))
+        start_time = data.get('start_time', getattr(self.instance, 'start_time', None))
+        expected_arrival = data.get('expected_arrival', getattr(self.instance, 'expected_arrival', None))
 
-        if not user.can_create_ride():
-            raise serializers.ValidationError(
-                "Limite de caronas ativas atingido para este motorista."
-            )
+        # Validações aplicadas apenas na CRIAÇÃO (quando self.instance é None)
+        if self.instance is None:
+            if user and not user.can_create_ride():
+                raise serializers.ValidationError(
+                    "Limite de caronas ativas atingido para este motorista."
+                )
+            
+            # Garante que mesmo que tentem injetar outro status no POST, começará pendente
+            data['status'] = 'pendente'
+        else:
+            # Se for atualização (PATCH/PUT), valida se o status enviado é legítimo
+            if 'status' in data:
+                valid_status = ['pendente', 'confirmada', 'em_andamento', 'finalizada', 'cancelada']
+                if data['status'] not in valid_status:
+                    raise serializers.ValidationError({"status": "Status de viagem inválido."})
 
-        if available_seats > vehicle.seats:
+        # Validações gerais que valem tanto para criação quanto edição
+        if vehicle and available_seats > vehicle.seats:
             raise serializers.ValidationError({
                 "available_seats": f"O veículo possui apenas {vehicle.seats} assentos."
             })
 
-        if expected_arrival and expected_arrival <= start_time:
+        if expected_arrival and start_time and expected_arrival <= start_time:
             raise serializers.ValidationError({
                 "expected_arrival": "A previsão de chegada deve ser após a saída."
             })
-
-        if start_time and timezone.now() >= start_time:
-            data['status'] = 'em_andamento'
-        else:
-            data['status'] = 'pendente'
 
         conflitos_de_horario = Ride.objects.filter(
             vehicle__user=user,
@@ -113,7 +116,6 @@ class RideSerializer(serializers.ModelSerializer):
         )
 
         if self.instance:
-            # self.instance.pk continua funcionando perfeitamente (o pk aponta pro UUID agora)
             conflitos_de_horario = conflitos_de_horario.exclude(pk=self.instance.pk)
 
         if conflitos_de_horario.exists():
@@ -126,9 +128,10 @@ class RideSerializer(serializers.ModelSerializer):
             })
 
         return data
-
+    
 
 class ReservationSerializer(serializers.ModelSerializer):
+    requested_seats = serializers.IntegerField(default=1)
 
     class Meta:
         model = Reservation

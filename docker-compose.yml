@@ -41,6 +41,8 @@ services:
       - raijmobi-network
 
   ride-app:
+    env_file:
+      - .env
     build: .
     container_name: ride-service
     command: >
@@ -61,7 +63,6 @@ services:
       - KAFKA_BOOTSTRAP_SERVERS=kafka-user:9092           # consumidor user-events (core/consumer.py)
       - KAFKA_BOOTSTRAP_SERVERS_USER=kafka-user:9092
       - ALLOWED_HOSTS=*
-      # AI
       - AI_PROVIDER=ollama
       - OLLAMA_URL=http://ollama:11434
       - OLLAMA_MODEL=llama3.2:3b

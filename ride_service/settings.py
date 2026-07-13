@@ -49,7 +49,7 @@ INSTALLED_APPS = [
     'django_filters',
     'easyaudit',
     'django_prometheus',
-    'django.contrib.gis'
+    'django.contrib.gis',
 ]
 
 MIDDLEWARE = [

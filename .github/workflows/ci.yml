@@ -1,0 +1,35 @@
+name: CI - ride-service
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    environment: ci-ride
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: docker build -t ride-app .
+
+      - name: Run Django check
+        run: |
+          docker run --rm \
+            -e SECRET_KEY="${{ secrets.SECRET_KEY || 'django-insecure-xyz789' }}" \
+            -e STRIPE_PUBLISHABLE_KEY="${{ secrets.STRIPE_PUBLISHABLE_KEY || 'pk_test_dummy' }}" \
+            -e STRIPE_SECRET_KEY="${{ secrets.STRIPE_SECRET_KEY || 'sk_test_dummy' }}" \
+            -e DB_NAME=raijmobi_ride_db \
+            -e DB_USER=raijmobi_ride \
+            -e DB_PASSWORD=raijmobi_pass \
+            -e DB_HOST=postgres-ride \
+            -e DB_PORT=5432 \
+            ride-app python manage.py check
