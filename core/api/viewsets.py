@@ -12,6 +12,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.core.cache import cache
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from ..kafka_producer import send_ride_event
+from django.core.exceptions import PermissionDenied
+
 
 import requests
 
@@ -30,16 +32,30 @@ class UserClientViewset(ModelViewSet):
 
 
 class VehicleViewset(ModelViewSet):
+    # 🌟 LIBERDADE DE LEITURA: Qualquer usuário autenticado pode ler qualquer veículo do banco
     queryset = Vehicle.objects.all()
     serializer_class = VehicleSerializer
     paginate_by = 10
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
-    def get_queryset(self):
-        return Vehicle.objects.filter(user=self.request.user)
+
 
     def perform_create(self, serializer):
+        # Garante que o veículo criado sempre pertença ao usuário autenticado que enviou a requisição
         serializer.save(user=self.request.user)
+
+    def perform_update(self, serializer):
+        # Segurança extra: impede que um usuário edite um veículo que não seja dele
+        instance = self.get_object()
+        if instance.user != self.request.user:
+            raise PermissionDenied("Você não tem permissão para alterar este veículo.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Segurança extra: impede que um usuário delete um veículo que não seja dele
+        if instance.user != self.request.user:
+            raise PermissionDenied("Você não tem permissão para deletar este veículo.")
+        instance.delete()
 
 
 class RideViewset(ModelViewSet):
